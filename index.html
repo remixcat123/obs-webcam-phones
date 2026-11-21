@@ -1,0 +1,1517 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0a0a0c" />
+  <title>Webcam P2P Persistente para OBS</title>
+  <!-- PeerJS para señalización WebRTC ligera -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <style>
+    :root {
+      --bg: #0a0a0c;
+      --surface: #141418;
+      --surface-2: #1e1e24;
+      --border: #2c2c35;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+      --radius: 12px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.4;
+      overflow-x: hidden;
+    }
+
+    /* ==========================================================================
+       MODO RECEPTOR (OBS STUDIO) - 100% LIMPIO Y TRANSPARENTE
+       ========================================================================== */
+    body.obs-mode {
+      background: transparent !important;
+      overflow: hidden !important;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    body.obs-mode #emitter-app {
+      display: none !important;
+    }
+
+    body.obs-mode #obs-app {
+      display: block !important;
+      width: 100vw;
+      height: 100vh;
+      background: transparent;
+    }
+
+    #obs-video {
+      width: 100vw;
+      height: 100vh;
+      object-fit: contain;
+      background: transparent;
+      display: block;
+    }
+
+    /* ==========================================================================
+       MODO EMISOR (TELÉFONO MÓVIL)
+       ========================================================================== */
+    #obs-app {
+      display: none;
+    }
+
+    #emitter-app {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 12px 14px 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* Cabecera y Estado */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--surface);
+      padding: 10px 14px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+    }
+
+    .brand {
+      font-weight: 700;
+      font-size: 0.95rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--warning);
+    }
+    .dot.ready { background: var(--primary); }
+    .dot.connected { background: var(--success); box-shadow: 0 0 8px var(--success); }
+    .dot.error { background: var(--danger); }
+
+    /* Vista Previa de Video */
+    .preview-container {
+      position: relative;
+      width: 100%;
+      background: #000;
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      aspect-ratio: 16 / 9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .preview-container.portrait {
+      aspect-ratio: 9 / 16;
+      max-height: 55vh;
+    }
+
+    #local-video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .preview-overlay {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      right: 8px;
+      display: flex;
+      justify-content: space-between;
+      pointer-events: none;
+    }
+
+    .pill-info {
+      background: rgba(0, 0, 0, 0.72);
+      backdrop-filter: blur(4px);
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      font-family: monospace;
+      color: #e5e7eb;
+    }
+
+    /* Tarjetas de Control */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .card-title {
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      font-weight: 700;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    /* Inputs y Botones */
+    .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .row > * {
+      flex: 1;
+    }
+
+    label.field-label {
+      display: block;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    input[type="text"],
+    input[type="number"],
+    select {
+      width: 100%;
+      background: var(--surface-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 10px;
+      font-size: 0.88rem;
+      outline: none;
+    }
+
+    input:focus, select:focus {
+      border-color: var(--primary);
+    }
+
+    button {
+      background: var(--surface-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    button:active {
+      transform: scale(0.98);
+    }
+
+    button.primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+
+    button.primary:hover {
+      background: var(--primary-hover);
+    }
+
+    button.success {
+      background: rgba(16, 185, 129, 0.15);
+      border-color: var(--success);
+      color: var(--success);
+    }
+
+    button.danger {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: var(--danger);
+      color: var(--danger);
+    }
+
+    /* Controles de Sensor (Sliders + Auto/Manual) */
+    .sensor-control {
+      background: var(--surface-2);
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .sensor-control.unsupported {
+      opacity: 0.45;
+      pointer-events: none;
+    }
+
+    .sensor-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.85rem;
+    }
+
+    .sensor-name {
+      font-weight: 600;
+    }
+
+    .sensor-val {
+      font-family: monospace;
+      color: var(--primary);
+      font-weight: 700;
+      margin-left: 6px;
+    }
+
+    .mode-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .mode-toggle input[type="checkbox"] {
+      accent-color: var(--primary);
+      width: 16px;
+      height: 16px;
+    }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 6px;
+      background: #2e2e38;
+      border-radius: 4px;
+      outline: none;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--primary);
+      cursor: pointer;
+      border: 2px solid #fff;
+    }
+
+    input[type="range"]:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
+    /* Pantalla OLED Black (Ahorro de batería y temperatura) */
+    #oled-saver {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: #000000;
+      z-index: 9999;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #4b5563;
+      text-align: center;
+      padding: 24px;
+      user-select: none;
+    }
+
+    #oled-saver.active {
+      display: flex;
+    }
+
+    /* Toast de notificaciones */
+    #toast {
+      position: fixed;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: #1f2937;
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+      border: 1px solid #374151;
+      transition: transform 0.25s ease;
+      z-index: 1000;
+      white-space: nowrap;
+    }
+
+    #toast.show {
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .hint {
+      font-size: 0.74rem;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ========================================================================
+       INTERFAZ MODO RECEPTOR (OBS STUDIO)
+       ======================================================================== -->
+  <div id="obs-app">
+    <video id="obs-video" autoplay playsinline muted></video>
+  </div>
+
+  <!-- ========================================================================
+       INTERFAZ MODO EMISOR (TELÉFONO MÓVIL)
+       ======================================================================== -->
+  <div id="emitter-app">
+    <header>
+      <div class="brand">
+        <span>📷 OBS Cam P2P</span>
+      </div>
+      <div class="status-badge">
+        <span class="dot" id="status-dot"></span>
+        <span id="status-text">Iniciando...</span>
+      </div>
+    </header>
+
+    <!-- Vista Previa -->
+    <div class="preview-container" id="preview-box">
+      <video id="local-video" autoplay playsinline muted></video>
+      <div class="preview-overlay">
+        <span class="pill-info" id="res-badge">--x-- @ --fps</span>
+        <span class="pill-info" id="wake-badge">WakeLock: --</span>
+      </div>
+    </div>
+
+    <!-- Conexión y Enlace OBS -->
+    <section class="card">
+      <div class="card-title">
+        <span>Conexión WebRTC & Sala OBS</span>
+        <button id="btn-oled" style="padding: 4px 8px; font-size: 0.75rem;">🌙 Modo OLED</button>
+      </div>
+      <div class="row">
+        <div style="flex: 1.2;">
+          <label class="field-label" for="room-id">ID de Sala Fijo</label>
+          <input type="text" id="room-id" placeholder="Ej: YH97bpw" />
+        </div>
+        <div style="flex: 0.8;">
+          <label class="field-label" for="bitrate-select">Bitrate Máx.</label>
+          <select id="bitrate-select">
+            <option value="2000">2.0 Mbps</option>
+            <option value="3500" selected>3.5 Mbps (HD)</option>
+            <option value="5000">5.0 Mbps (FHD)</option>
+            <option value="8000">8.0 Mbps (Pro)</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <button class="primary" id="btn-copy-obs">📋 Copiar URL para OBS</button>
+        <button id="btn-reconnect-peer">🔄 Reiniciar Sala</button>
+      </div>
+      <p class="hint">En OBS Studio: añade una fuente <b>Navegador</b>, pega la URL copiada y marca "Actualizar navegador cuando la escena se active".</p>
+    </section>
+
+    <!-- Selección de Lente y Formato -->
+    <section class="card">
+      <div class="card-title">Lente y Resolución</div>
+      <div>
+        <label class="field-label" for="camera-select">Cámara / Sensor Físico</label>
+        <select id="camera-select">
+          <option value="">Cargando cámaras...</option>
+        </select>
+      </div>
+      <div class="row">
+        <div>
+          <label class="field-label" for="res-preset">Resolución</label>
+          <select id="res-preset">
+            <option value="1280x720">1280x720 (HD Horizontal)</option>
+            <option value="720x1280">720x1280 (HD Vertical)</option>
+            <option value="1920x1080">1920x1080 (1080p Horiz.)</option>
+            <option value="1080x1920">1080x1920 (1080p Vert.)</option>
+            <option value="854x480">854x480 (480p Ligero)</option>
+          </select>
+        </div>
+        <div style="flex: 0.6;">
+          <label class="field-label" for="fps-select">FPS</label>
+          <select id="fps-select">
+            <option value="24">24 fps</option>
+            <option value="30" selected>30 fps</option>
+            <option value="60">60 fps</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <!-- Controles Manuales del Sensor (Hardware) -->
+    <section class="card">
+      <div class="card-title">
+        <span>Ajustes Manuales del Sensor</span>
+        <button id="btn-reapply" style="padding: 4px 8px; font-size: 0.75rem;">⚡ Reaplicar</button>
+      </div>
+
+      <!-- 1. Temperatura de Color (Balance de Blancos) -->
+      <div class="sensor-control" id="ctrl-wb">
+        <div class="sensor-header">
+          <div>
+            <span class="sensor-name">Balance Blancos</span>
+            <span class="sensor-val" id="val-colorTemperature">5000K</span>
+          </div>
+          <label class="mode-toggle">
+            <input type="checkbox" id="auto-whiteBalanceMode" checked />
+            <span>Auto</span>
+          </label>
+        </div>
+        <input type="range" id="range-colorTemperature" min="2800" max="7500" step="50" value="5000" disabled />
+      </div>
+
+      <!-- 2. Tiempo de Exposición (Obturación) -->
+      <div class="sensor-control" id="ctrl-exp">
+        <div class="sensor-header">
+          <div>
+            <span class="sensor-name">Exposición</span>
+            <span class="sensor-val" id="val-exposureTime">300</span>
+          </div>
+          <label class="mode-toggle">
+            <input type="checkbox" id="auto-exposureMode" checked />
+            <span>Auto</span>
+          </label>
+        </div>
+        <input type="range" id="range-exposureTime" min="10" max="10000" step="10" value="300" disabled />
+      </div>
+
+      <!-- 3. Sensibilidad ISO -->
+      <div class="sensor-control" id="ctrl-iso">
+        <div class="sensor-header">
+          <div>
+            <span class="sensor-name">Sensibilidad ISO</span>
+            <span class="sensor-val" id="val-iso">400</span>
+          </div>
+          <span class="hint" id="iso-hint">(Requiere Exp. Manual)</span>
+        </div>
+        <input type="range" id="range-iso" min="50" max="3200" step="25" value="400" disabled />
+      </div>
+
+      <!-- 4. Compensación de Exposición (EV) -->
+      <div class="sensor-control" id="ctrl-ev">
+        <div class="sensor-header">
+          <div>
+            <span class="sensor-name">Compensación EV</span>
+            <span class="sensor-val" id="val-exposureCompensation">0</span>
+          </div>
+          <span class="hint" id="ev-hint">(Solo en Exp. Auto)</span>
+        </div>
+        <input type="range" id="range-exposureCompensation" min="-2" max="2" step="0.1" value="0" />
+      </div>
+
+      <!-- 5. Distancia de Enfoque -->
+      <div class="sensor-control" id="ctrl-focus">
+        <div class="sensor-header">
+          <div>
+            <span class="sensor-name">Enfoque Manual</span>
+            <span class="sensor-val" id="val-focusDistance">0.25</span>
+          </div>
+          <label class="mode-toggle">
+            <input type="checkbox" id="auto-focusMode" checked />
+            <span>Auto</span>
+          </label>
+        </div>
+        <input type="range" id="range-focusDistance" min="0" max="1" step="0.01" value="0.25" disabled />
+      </div>
+
+      <!-- 6. Zoom -->
+      <div class="sensor-control" id="ctrl-zoom">
+        <div class="sensor-header">
+          <div>
+            <span class="sensor-name">Zoom Óptico/Digital</span>
+            <span class="sensor-val" id="val-zoom">1.0x</span>
+          </div>
+        </div>
+        <input type="range" id="range-zoom" min="1" max="5" step="0.1" value="1" />
+      </div>
+    </section>
+
+    <!-- Perfiles y Respaldo JSON -->
+    <section class="card">
+      <div class="card-title">Perfiles y Respaldo</div>
+      <div class="row">
+        <select id="profile-select">
+          <option value="default">Perfil Principal (Actual)</option>
+          <option value="dia">☀️ Escena Día / Estudio</option>
+          <option value="noche">🌙 Escena Noche / Baja Luz</option>
+          <option value="vertical">📱 Vertical Reels / TikTok</option>
+        </select>
+        <button id="btn-save-profile">💾 Guardar en Perfil</button>
+      </div>
+      <div class="row">
+        <button id="btn-export-json">⬇️ Exportar JSON</button>
+        <button id="btn-import-json">⬆️ Importar JSON</button>
+        <input type="file" id="file-import" accept=".json" style="display: none;" />
+      </div>
+      <button class="danger" id="btn-reset-all" style="margin-top: 4px;">Restablecer Valores de Fábrica</button>
+    </section>
+  </div>
+
+  <!-- Pantalla Negra OLED para evitar calentamiento -->
+  <div id="oled-saver">
+    <p style="font-size: 1.1rem; color: #9ca3af; margin-bottom: 8px;">🌙 Modo Ahorro OLED Activo</p>
+    <p style="font-size: 0.85rem;">La cámara sigue transmitiendo a OBS sin suspensión.</p>
+    <p style="font-size: 0.8rem; margin-top: 24px; color: #6b7280;">Toca dos veces en cualquier lugar para volver</p>
+  </div>
+
+  <div id="toast"></div>
+
+  <script>
+    /**
+     * ============================================================================
+     * WEBCAM P2P PERSISTENTE PARA OBS STUDIO
+     * Arquitectura: Single-File Vanilla JS + PeerJS + MediaStreamTrack Constraints
+     * ============================================================================
+     */
+
+    const PEER_PREFIX = 'obs-webcam-p2p-';
+    const STORAGE_KEY = 'obs_webcam_p2p_state_v1';
+    const PROFILES_KEY = 'obs_webcam_p2p_profiles_v1';
+
+    // Detectar modo de operación según parámetros de URL (?view&id=SALA)
+    const urlParams = new URLSearchParams(window.location.search);
+    const isObsView = urlParams.has('view');
+    const obsRoomId = urlParams.get('id');
+
+    // Utilidad para notificaciones visuales en móvil
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      if (!toast) return;
+      toast.textContent = msg;
+      toast.classList.add('show');
+      clearTimeout(toast._timer);
+      toast._timer = setTimeout(() => toast.classList.remove('show'), 2600);
+    }
+
+    // Genera un ID aleatorio corto si es la primera vez que se abre la app
+    function generateRoomId(length = 7) {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+      let result = '';
+      for (let i = 0; i < length; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return result;
+    }
+
+    /* ==========================================================================
+       RAMA A: MODO RECEPTOR (OBS STUDIO - AUTO-HEALING)
+       ========================================================================== */
+    if (isObsView) {
+      document.body.classList.add('obs-mode');
+      initObsReceiver(obsRoomId);
+    } else {
+      initMobileEmitter();
+    }
+
+    function initObsReceiver(roomId) {
+      const videoEl = document.getElementById('obs-video');
+      if (!roomId) {
+        console.error('[OBS Mode] Falta el parámetro ?id=SALA en la URL.');
+        return;
+      }
+
+      const targetPeerId = PEER_PREFIX + roomId.trim();
+      let peer = null;
+      let currentCall = null;
+      let reconnectTimer = null;
+      let isConnected = false;
+
+      // Crea un MediaStream dummy (1x1px) necesario para iniciar llamadas en PeerJS
+      function createDummyStream() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 2;
+        canvas.height = 2;
+        const ctx = canvas.getContext('2d');
+        ctx.fillRect(0, 0, 1, 1);
+        return canvas.captureStream(1);
+      }
+
+      const dummyStream = createDummyStream();
+
+      function scheduleReconnect() {
+        isConnected = false;
+        videoEl.srcObject = null;
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => {
+          attemptCall();
+        }, 2500); // Reintento automático cada 2.5 segundos
+      }
+
+      function attemptCall() {
+        if (isConnected) return;
+
+        if (!peer || peer.destroyed) {
+          peer = new Peer({
+            debug: 1,
+            config: {
+              iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+              ]
+            }
+          });
+
+          peer.on('open', () => {
+            dialEmitter();
+          });
+
+          peer.on('error', (err) => {
+            // peer-unavailable ocurre cuando OBS se abre antes que el teléfono
+            console.warn('[OBS Receiver] Reintentando conexión:', err.type);
+            scheduleReconnect();
+          });
+
+          peer.on('disconnected', () => {
+            if (!peer.destroyed) peer.reconnect();
+            scheduleReconnect();
+          });
+        } else if (peer.open) {
+          dialEmitter();
+        }
+      }
+
+      function dialEmitter() {
+        if (currentCall) {
+          try { currentCall.close(); } catch (e) {}
+        }
+
+        console.log('[OBS Receiver] Llamando al emisor:', targetPeerId);
+        const call = peer.call(targetPeerId, dummyStream);
+        currentCall = call;
+
+        if (!call) {
+          scheduleReconnect();
+          return;
+        }
+
+        // Timeout de seguridad si la llamada queda colgada sin respuesta
+        const handshakeTimeout = setTimeout(() => {
+          if (!isConnected) {
+            try { call.close(); } catch (e) {}
+            scheduleReconnect();
+          }
+        }, 4000);
+
+        call.on('stream', (remoteStream) => {
+          clearTimeout(handshakeTimeout);
+          isConnected = true;
+          videoEl.srcObject = remoteStream;
+          videoEl.play().catch(e => console.warn('Autoplay bloqueado:', e));
+
+          // Vigilar si la pista de video se detiene o se congela
+          const videoTrack = remoteStream.getVideoTracks()[0];
+          if (videoTrack) {
+            videoTrack.onended = () => scheduleReconnect();
+            videoTrack.onmute = () => {
+              setTimeout(() => {
+                if (videoTrack.muted) scheduleReconnect();
+              }, 3000);
+            };
+          }
+        });
+
+        call.on('close', () => {
+          clearTimeout(handshakeTimeout);
+          scheduleReconnect();
+        });
+
+        call.on('error', () => {
+          clearTimeout(handshakeTimeout);
+          scheduleReconnect();
+        });
+      }
+
+      // Iniciar ciclo de conexión inmediata
+      attemptCall();
+    }
+
+    /* ==========================================================================
+       RAMA B: MODO EMISOR (TELÉFONO MÓVIL - CONTROLES MANUALES Y PERSISTENCIA)
+       ========================================================================== */
+    function initMobileEmitter() {
+      // Configuración por defecto
+      const defaultState = {
+        roomId: generateRoomId(),
+        bitrateKbps: 3500,
+        deviceId: '',
+        width: 1280,
+        height: 720,
+        frameRate: 30,
+        whiteBalanceMode: 'continuous',
+        colorTemperature: 5000,
+        exposureMode: 'continuous',
+        exposureTime: 300,
+        iso: 400,
+        exposureCompensation: 0,
+        focusMode: 'continuous',
+        focusDistance: 0.25,
+        zoom: 1
+      };
+
+      // Cargar estado persistente desde localStorage
+      let state = loadState();
+      let currentStream = null;
+      let videoTrack = null;
+      let capabilities = {};
+      let peer = null;
+      let activeCalls = new Set();
+      let wakeLock = null;
+
+      // Referencias DOM
+      const el = {
+        statusDot: document.getElementById('status-dot'),
+        statusText: document.getElementById('status-text'),
+        previewBox: document.getElementById('preview-box'),
+        localVideo: document.getElementById('local-video'),
+        resBadge: document.getElementById('res-badge'),
+        wakeBadge: document.getElementById('wake-badge'),
+        roomId: document.getElementById('room-id'),
+        bitrateSelect: document.getElementById('bitrate-select'),
+        btnCopyObs: document.getElementById('btn-copy-obs'),
+        btnReconnectPeer: document.getElementById('btn-reconnect-peer'),
+        cameraSelect: document.getElementById('camera-select'),
+        resPreset: document.getElementById('res-preset'),
+        fpsSelect: document.getElementById('fps-select'),
+        btnReapply: document.getElementById('btn-reapply'),
+        // Sensores
+        autoWb: document.getElementById('auto-whiteBalanceMode'),
+        rangeCt: document.getElementById('range-colorTemperature'),
+        valCt: document.getElementById('val-colorTemperature'),
+        autoExp: document.getElementById('auto-exposureMode'),
+        rangeExp: document.getElementById('range-exposureTime'),
+        valExp: document.getElementById('val-exposureTime'),
+        rangeIso: document.getElementById('range-iso'),
+        valIso: document.getElementById('val-iso'),
+        rangeEv: document.getElementById('range-exposureCompensation'),
+        valEv: document.getElementById('val-exposureCompensation'),
+        autoFocus: document.getElementById('auto-focusMode'),
+        rangeFocus: document.getElementById('range-focusDistance'),
+        valFocus: document.getElementById('val-focusDistance'),
+        rangeZoom: document.getElementById('range-zoom'),
+        valZoom: document.getElementById('val-zoom'),
+        // Perfiles y extras
+        profileSelect: document.getElementById('profile-select'),
+        btnSaveProfile: document.getElementById('btn-save-profile'),
+        btnExportJson: document.getElementById('btn-export-json'),
+        btnImportJson: document.getElementById('btn-import-json'),
+        fileImport: document.getElementById('file-import'),
+        btnResetAll: document.getElementById('btn-reset-all'),
+        btnOled: document.getElementById('btn-oled'),
+        oledSaver: document.getElementById('oled-saver')
+      };
+
+      function loadState() {
+        try {
+          const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+          return saved ? { ...defaultState, ...saved } : { ...defaultState };
+        } catch (e) {
+          return { ...defaultState };
+        }
+      }
+
+      function saveState() {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        } catch (e) {
+          console.warn('No se pudo guardar en localStorage:', e);
+        }
+      }
+
+      function setStatus(type, text) {
+        el.statusDot.className = 'dot ' + type;
+        el.statusText.textContent = text;
+      }
+
+      /* ------------------------------------------------------------------------
+         1. GESTIÓN DE WAKE LOCK (EVITAR SUSPENSIÓN DE PANTALLA)
+         ------------------------------------------------------------------------ */
+      async function requestWakeLock() {
+        if (!('wakeLock' in navigator)) {
+          el.wakeBadge.textContent = 'WakeLock: N/A';
+          return;
+        }
+        try {
+          wakeLock = await navigator.wakeLock.request('screen');
+          el.wakeBadge.textContent = 'WakeLock: Activo';
+          wakeLock.addEventListener('release', () => {
+            el.wakeBadge.textContent = 'WakeLock: Pausado';
+          });
+        } catch (err) {
+          el.wakeBadge.textContent = 'WakeLock: Error';
+        }
+      }
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          requestWakeLock();
+          // Reaplicar restricciones por si Android las reseteó al minimizar
+          if (videoTrack) applyAllHardwareConstraints();
+        }
+      });
+
+      /* ------------------------------------------------------------------------
+         2. INICIALIZACIÓN DE CÁMARA, CAPACIDADES Y RESTRICCIONES ESCALONADAS
+         ------------------------------------------------------------------------ */
+      async function populateCameras() {
+        try {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const videoInputs = devices.filter(d => d.kind === 'videoinput');
+          el.cameraSelect.innerHTML = '';
+
+          videoInputs.forEach((device, idx) => {
+            const option = document.createElement('option');
+            option.value = device.deviceId;
+            option.textContent = device.label || `Cámara ${idx + 1}`;
+            el.cameraSelect.appendChild(option);
+          });
+
+          if (state.deviceId && videoInputs.some(d => d.deviceId === state.deviceId)) {
+            el.cameraSelect.value = state.deviceId;
+          } else if (videoInputs.length > 0) {
+            // Preferir cámara trasera por defecto si no hay guardada
+            const backCam = videoInputs.find(d => /back|rear|trasera|environment/i.test(d.label));
+            state.deviceId = backCam ? backCam.deviceId : videoInputs[0].deviceId;
+            el.cameraSelect.value = state.deviceId;
+            saveState();
+          }
+        } catch (err) {
+          console.error('Error listando cámaras:', err);
+        }
+      }
+
+      async function startCamera() {
+        if (currentStream) {
+          currentStream.getTracks().forEach(t => t.stop());
+        }
+
+        const constraints = {
+          audio: false,
+          video: {
+            width: { ideal: Number(state.width) },
+            height: { ideal: Number(state.height) },
+            frameRate: { ideal: Number(state.frameRate) }
+          }
+        };
+
+        if (state.deviceId) {
+          constraints.video.deviceId = { exact: state.deviceId };
+        } else {
+          constraints.video.facingMode = { ideal: 'environment' };
+        }
+
+        try {
+          currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+        } catch (err) {
+          // Si falla el deviceId exacto (ej. lente desconectado), hacer fallback genérico
+          console.warn('Fallback de cámara por error en constraints iniciales:', err);
+          delete constraints.video.deviceId;
+          currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+        }
+
+        videoTrack = currentStream.getVideoTracks()[0];
+        el.localVideo.srcObject = currentStream;
+
+        // Actualizar lista de cámaras ahora que ya tenemos permisos y etiquetas reales
+        await populateCameras();
+
+        // Actualizar pista en llamadas WebRTC activas sin cortar OBS
+        replaceStreamTrackInActiveCalls(videoTrack);
+
+        // Inspeccionar capacidades reales del sensor actual y configurar sliders
+        inspectCapabilitiesAndSyncUI();
+
+        // Aplicar valores persistentes de forma escalonada
+        await applyAllHardwareConstraints();
+
+        // Actualizar badge de resolución real obtenida
+        updateResolutionBadge();
+      }
+
+      function updateResolutionBadge() {
+        if (!videoTrack) return;
+        const settings = videoTrack.getSettings();
+        const w = settings.width || state.width;
+        const h = settings.height || state.height;
+        const fps = Math.round(settings.frameRate || state.frameRate);
+        el.resBadge.textContent = `${w}x${h} @ ${fps}fps`;
+
+        if (h > w) {
+          el.previewBox.classList.add('portrait');
+        } else {
+          el.previewBox.classList.remove('portrait');
+        }
+      }
+
+      // Clamping dinámico: garantiza que un valor guardado nunca exceda min/max del sensor actual
+      function clampValue(val, capObj, fallback) {
+        if (!capObj || typeof capObj.min !== 'number' || typeof capObj.max !== 'number') {
+          return val ?? fallback;
+        }
+        const num = Number(val);
+        if (isNaN(num)) return fallback;
+        return Math.min(Math.max(num, capObj.min), capObj.max);
+      }
+
+      function configureSlider(rangeEl, capObj, currentValue, containerEl) {
+        if (!capObj || typeof capObj.min !== 'number') {
+          if (containerEl) containerEl.classList.add('unsupported');
+          return null;
+        }
+        if (containerEl) containerEl.classList.remove('unsupported');
+        rangeEl.min = capObj.min;
+        rangeEl.max = capObj.max;
+        if (capObj.step) rangeEl.step = capObj.step;
+
+        const clamped = clampValue(currentValue, capObj, capObj.min);
+        rangeEl.value = clamped;
+        return clamped;
+      }
+
+      function inspectCapabilitiesAndSyncUI() {
+        if (!videoTrack || typeof videoTrack.getCapabilities !== 'function') {
+          capabilities = {};
+          return;
+        }
+
+        capabilities = videoTrack.getCapabilities();
+        console.log('[Hardware Capabilities]:', capabilities);
+
+        // 1. Balance de blancos y Temperatura de color
+        const wbSupported = Array.isArray(capabilities.whiteBalanceMode);
+        document.getElementById('ctrl-wb').classList.toggle('unsupported', !wbSupported && !capabilities.colorTemperature);
+        el.autoWb.checked = state.whiteBalanceMode === 'continuous';
+        if (capabilities.colorTemperature) {
+          state.colorTemperature = configureSlider(el.rangeCt, capabilities.colorTemperature, state.colorTemperature);
+        }
+        el.rangeCt.disabled = el.autoWb.checked || !capabilities.colorTemperature;
+        el.valCt.textContent = `${state.colorTemperature}K`;
+
+        // 2. Exposición (Modo y Tiempo)
+        const expSupported = Array.isArray(capabilities.exposureMode);
+        document.getElementById('ctrl-exp').classList.toggle('unsupported', !expSupported && !capabilities.exposureTime);
+        el.autoExp.checked = state.exposureMode === 'continuous';
+        if (capabilities.exposureTime) {
+          state.exposureTime = configureSlider(el.rangeExp, capabilities.exposureTime, state.exposureTime);
+        }
+        el.rangeExp.disabled = el.autoExp.checked || !capabilities.exposureTime;
+        el.valExp.textContent = `${state.exposureTime}`;
+
+        // 3. ISO (Habilitado en Android cuando exposureMode === 'manual')
+        if (capabilities.iso) {
+          state.iso = configureSlider(el.rangeIso, capabilities.iso, state.iso, document.getElementById('ctrl-iso'));
+          el.rangeIso.disabled = el.autoExp.checked;
+        } else {
+          document.getElementById('ctrl-iso').classList.add('unsupported');
+        }
+        el.valIso.textContent = `${state.iso}`;
+
+        // 4. Compensación EV (Habilitado cuando exposureMode === 'continuous')
+        if (capabilities.exposureCompensation) {
+          state.exposureCompensation = configureSlider(
+            el.rangeEv,
+            capabilities.exposureCompensation,
+            state.exposureCompensation,
+            document.getElementById('ctrl-ev')
+          );
+          el.rangeEv.disabled = !el.autoExp.checked;
+        } else {
+          document.getElementById('ctrl-ev').classList.add('unsupported');
+        }
+        el.valEv.textContent = `${state.exposureCompensation}`;
+
+        // 5. Enfoque (Modo y Distancia)
+        const focusSupported = Array.isArray(capabilities.focusMode);
+        document.getElementById('ctrl-focus').classList.toggle('unsupported', !focusSupported && !capabilities.focusDistance);
+        el.autoFocus.checked = state.focusMode === 'continuous';
+        if (capabilities.focusDistance) {
+          state.focusDistance = configureSlider(el.rangeFocus, capabilities.focusDistance, state.focusDistance);
+        }
+        el.rangeFocus.disabled = el.autoFocus.checked || !capabilities.focusDistance;
+        el.valFocus.textContent = Number(state.focusDistance).toFixed(2);
+
+        // 6. Zoom
+        if (capabilities.zoom) {
+          state.zoom = configureSlider(el.rangeZoom, capabilities.zoom, state.zoom, document.getElementById('ctrl-zoom'));
+        } else {
+          document.getElementById('ctrl-zoom').classList.add('unsupported');
+        }
+        el.valZoom.textContent = `${Number(state.zoom).toFixed(1)}x`;
+
+        saveState();
+      }
+
+      // Aplicación individual y escalonada de restricciones para máxima estabilidad en Chromium Android
+      async function applySingleConstraint(key, value) {
+        if (!videoTrack) return;
+        try {
+          await videoTrack.applyConstraints({
+            advanced: [{ [key]: value }]
+          });
+        } catch (err) {
+          console.warn(`[Constraint Rechazado] ${key}=${value}:`, err.message);
+        }
+      }
+
+      async function applyAllHardwareConstraints() {
+        if (!videoTrack) return;
+
+        // 1. Balance de Blancos
+        if (Array.isArray(capabilities.whiteBalanceMode) && capabilities.whiteBalanceMode.includes(state.whiteBalanceMode)) {
+          await applySingleConstraint('whiteBalanceMode', state.whiteBalanceMode);
+        }
+        if (state.whiteBalanceMode === 'manual' && capabilities.colorTemperature) {
+          const val = clampValue(state.colorTemperature, capabilities.colorTemperature, 5000);
+          await applySingleConstraint('colorTemperature', val);
+        }
+
+        // 2. Exposición, ISO y EV
+        if (Array.isArray(capabilities.exposureMode) && capabilities.exposureMode.includes(state.exposureMode)) {
+          await applySingleConstraint('exposureMode', state.exposureMode);
+        }
+        if (state.exposureMode === 'manual') {
+          if (capabilities.exposureTime) {
+            const expVal = clampValue(state.exposureTime, capabilities.exposureTime, 300);
+            await applySingleConstraint('exposureTime', expVal);
+          }
+          if (capabilities.iso) {
+            const isoVal = clampValue(state.iso, capabilities.iso, 400);
+            await applySingleConstraint('iso', isoVal);
+          }
+        } else {
+          if (capabilities.exposureCompensation) {
+            const evVal = clampValue(state.exposureCompensation, capabilities.exposureCompensation, 0);
+            await applySingleConstraint('exposureCompensation', evVal);
+          }
+        }
+
+        // 3. Enfoque
+        if (Array.isArray(capabilities.focusMode) && capabilities.focusMode.includes(state.focusMode)) {
+          await applySingleConstraint('focusMode', state.focusMode);
+        }
+        if (state.focusMode === 'manual' && capabilities.focusDistance) {
+          const focusVal = clampValue(state.focusDistance, capabilities.focusDistance, 0.25);
+          await applySingleConstraint('focusDistance', focusVal);
+        }
+
+        // 4. Zoom
+        if (capabilities.zoom) {
+          const zoomVal = clampValue(state.zoom, capabilities.zoom, 1);
+          await applySingleConstraint('zoom', zoomVal);
+        }
+      }
+
+      /* ------------------------------------------------------------------------
+         3. SERVIDOR WEBRTC (PEERJS) Y CONTROL DE BITRATE EN RTCRtpSender
+         ------------------------------------------------------------------------ */
+      function initPeerEmitter() {
+        if (peer && !peer.destroyed) {
+          peer.destroy();
+        }
+        activeCalls.clear();
+
+        const fullId = PEER_PREFIX + state.roomId.trim();
+        setStatus('', 'Registrando sala...');
+
+        peer = new Peer(fullId, {
+          debug: 1,
+          config: {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+          }
+        });
+
+        peer.on('open', (id) => {
+          setStatus('ready', 'Listo para OBS');
+          console.log('[Emitter] Peer abierto con ID:', id);
+        });
+
+        peer.on('call', (incomingCall) => {
+          console.log('[Emitter] Conexión entrante desde OBS...');
+          if (!currentStream) return;
+
+          // Responder con el stream de la cámara
+          incomingCall.answer(currentStream);
+          activeCalls.add(incomingCall);
+          setStatus('connected', 'Transmitiendo a OBS');
+
+          // Configurar bitrate alto y mantener resolución en la conexión WebRTC
+          enforceHighBitrate(incomingCall);
+
+          incomingCall.on('close', () => {
+            activeCalls.delete(incomingCall);
+            if (activeCalls.size === 0) setStatus('ready', 'Listo para OBS');
+          });
+
+          incomingCall.on('error', () => {
+            activeCalls.delete(incomingCall);
+            if (activeCalls.size === 0) setStatus('ready', 'Listo para OBS');
+          });
+        });
+
+        peer.on('error', (err) => {
+          console.error('[Emitter Peer Error]:', err);
+          if (err.type === 'unavailable-id') {
+            setStatus('error', 'ID en uso (cámbialo)');
+            showToast('Ese ID de sala ya está en uso. Prueba otro.');
+          } else {
+            setStatus('error', 'Error de red');
+          }
+        });
+
+        peer.on('disconnected', () => {
+          setStatus('', 'Reconectando...');
+          if (!peer.destroyed) peer.reconnect();
+        });
+      }
+
+      // Fuerza el bitrate configurado y desactiva la degradación automática de resolución
+      function enforceHighBitrate(call) {
+        const pc = call.peerConnection;
+        if (!pc) return;
+
+        const applySenderParams = async () => {
+          const senders = pc.getSenders();
+          const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+          if (!videoSender) return;
+
+          try {
+            const params = videoSender.getParameters();
+            if (!params.encodings || params.encodings.length === 0) {
+              params.encodings = [{}];
+            }
+            params.encodings[0].maxBitrate = Number(state.bitrateKbps) * 1000;
+            params.degradationPreference = 'maintain-resolution';
+            await videoSender.setParameters(params);
+            console.log(`[WebRTC QoS] Bitrate fijado a ${state.bitrateKbps} kbps (maintain-resolution)`);
+          } catch (e) {
+            console.warn('[WebRTC QoS] No se pudo ajustar setParameters:', e);
+          }
+        };
+
+        pc.addEventListener('iceconnectionstatechange', () => {
+          if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+            applySenderParams();
+          }
+        });
+
+        setTimeout(applySenderParams, 800);
+      }
+
+      function replaceStreamTrackInActiveCalls(newTrack) {
+        activeCalls.forEach(call => {
+          const pc = call.peerConnection;
+          if (!pc) return;
+          const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+          if (sender) {
+            sender.replaceTrack(newTrack).catch(e => console.warn('Error reemplazando pista:', e));
+          }
+        });
+      }
+
+      /* ------------------------------------------------------------------------
+         4. SINCRONIZACIÓN DE UI Y EVENTOS DE USUARIO
+         ------------------------------------------------------------------------ */
+      function syncInitialUI() {
+        el.roomId.value = state.roomId;
+        el.bitrateSelect.value = String(state.bitrateKbps);
+        el.resPreset.value = `${state.width}x${state.height}`;
+        el.fpsSelect.value = String(state.frameRate);
+      }
+
+      // Sala y Bitrate
+      el.roomId.addEventListener('change', () => {
+        const cleanId = el.roomId.value.trim().replace(/[^a-zA-Z0-9_-]/g, '');
+        if (!cleanId) return;
+        state.roomId = cleanId;
+        el.roomId.value = cleanId;
+        saveState();
+        initPeerEmitter();
+        showToast('ID de sala actualizado');
+      });
+
+      el.bitrateSelect.addEventListener('change', () => {
+        state.bitrateKbps = Number(el.bitrateSelect.value);
+        saveState();
+        activeCalls.forEach(call => enforceHighBitrate(call));
+        showToast(`Bitrate ajustado a ${state.bitrateKbps} kbps`);
+      });
+
+      el.btnReconnectPeer.addEventListener('click', () => {
+        initPeerEmitter();
+        showToast('Reiniciando señalización WebRTC...');
+      });
+
+      // Copiar URL lista para OBS
+      el.btnCopyObs.addEventListener('click', async () => {
+        const baseUrl = window.location.origin + window.location.pathname;
+        const obsUrl = `${baseUrl}?view&id=${encodeURIComponent(state.roomId)}`;
+        try {
+          await navigator.clipboard.writeText(obsUrl);
+          showToast('¡URL de OBS copiada al portapapeles!');
+        } catch (e) {
+          prompt('Copia esta URL para OBS Studio:', obsUrl);
+        }
+      });
+
+      // Cámara, Resolución y FPS
+      el.cameraSelect.addEventListener('change', async () => {
+        state.deviceId = el.cameraSelect.value;
+        saveState();
+        await startCamera();
+        showToast('Lente cambiado y ajustes aplicados');
+      });
+
+      el.resPreset.addEventListener('change', async () => {
+        const [w, h] = el.resPreset.value.split('x').map(Number);
+        state.width = w;
+        state.height = h;
+        saveState();
+        await startCamera();
+      });
+
+      el.fpsSelect.addEventListener('change', async () => {
+        state.frameRate = Number(el.fpsSelect.value);
+        saveState();
+        await startCamera();
+      });
+
+      el.btnReapply.addEventListener('click', async () => {
+        await applyAllHardwareConstraints();
+        showToast('Ajustes de hardware reaplicados');
+      });
+
+      // Controles de Sensor: Balance de Blancos
+      el.autoWb.addEventListener('change', async () => {
+        state.whiteBalanceMode = el.autoWb.checked ? 'continuous' : 'manual';
+        el.rangeCt.disabled = el.autoWb.checked;
+        saveState();
+        await applySingleConstraint('whiteBalanceMode', state.whiteBalanceMode);
+        if (!el.autoWb.checked) {
+          await applySingleConstraint('colorTemperature', Number(state.colorTemperature));
+        }
+      });
+
+      el.rangeCt.addEventListener('input', async () => {
+        state.colorTemperature = Number(el.rangeCt.value);
+        el.valCt.textContent = `${state.colorTemperature}K`;
+        saveState();
+        await applySingleConstraint('colorTemperature', state.colorTemperature);
+      });
+
+      // Controles de Sensor: Exposición, ISO y EV
+      el.autoExp.addEventListener('change', async () => {
+        state.exposureMode = el.autoExp.checked ? 'continuous' : 'manual';
+        el.rangeExp.disabled = el.autoExp.checked;
+        el.rangeIso.disabled = el.autoExp.checked;
+        el.rangeEv.disabled = !el.autoExp.checked;
+        saveState();
+
+        await applySingleConstraint('exposureMode', state.exposureMode);
+        if (state.exposureMode === 'manual') {
+          await applySingleConstraint('exposureTime', Number(state.exposureTime));
+          await applySingleConstraint('iso', Number(state.iso));
+        } else {
+          await applySingleConstraint('exposureCompensation', Number(state.exposureCompensation));
+        }
+      });
+
+      el.rangeExp.addEventListener('input', async () => {
+        state.exposureTime = Number(el.rangeExp.value);
+        el.valExp.textContent = `${state.exposureTime}`;
+        saveState();
+        await applySingleConstraint('exposureTime', state.exposureTime);
+      });
+
+      el.rangeIso.addEventListener('input', async () => {
+        state.iso = Number(el.rangeIso.value);
+        el.valIso.textContent = `${state.iso}`;
+        saveState();
+        await applySingleConstraint('iso', state.iso);
+      });
+
+      el.rangeEv.addEventListener('input', async () => {
+        state.exposureCompensation = Number(el.rangeEv.value);
+        el.valEv.textContent = `${state.exposureCompensation}`;
+        saveState();
+        await applySingleConstraint('exposureCompensation', state.exposureCompensation);
+      });
+
+      // Controles de Sensor: Enfoque
+      el.autoFocus.addEventListener('change', async () => {
+        state.focusMode = el.autoFocus.checked ? 'continuous' : 'manual';
+        el.rangeFocus.disabled = el.autoFocus.checked;
+        saveState();
+        await applySingleConstraint('focusMode', state.focusMode);
+        if (!el.autoFocus.checked) {
+          await applySingleConstraint('focusDistance', Number(state.focusDistance));
+        }
+      });
+
+      el.rangeFocus.addEventListener('input', async () => {
+        state.focusDistance = Number(el.rangeFocus.value);
+        el.valFocus.textContent = state.focusDistance.toFixed(2);
+        saveState();
+        await applySingleConstraint('focusDistance', state.focusDistance);
+      });
+
+      // Controles de Sensor: Zoom
+      el.rangeZoom.addEventListener('input', async () => {
+        state.zoom = Number(el.rangeZoom.value);
+        el.valZoom.textContent = `${state.zoom.toFixed(1)}x`;
+        saveState();
+        await applySingleConstraint('zoom', state.zoom);
+      });
+
+      /* ------------------------------------------------------------------------
+         5. PERFILES, EXPORTAR/IMPORTAR JSON Y MODO OLED
+         ------------------------------------------------------------------------ */
+      function getProfiles() {
+        try {
+          return JSON.parse(localStorage.getItem(PROFILES_KEY)) || {};
+        } catch (e) {
+          return {};
+        }
+      }
+
+      el.btnSaveProfile.addEventListener('click', () => {
+        const profileKey = el.profileSelect.value;
+        const profiles = getProfiles();
+        // Guardamos todos los ajustes de cámara excepto el roomId
+        const { roomId, ...cameraSettings } = state;
+        profiles[profileKey] = cameraSettings;
+        localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles));
+        showToast(`Ajustes guardados en perfil "${profileKey}"`);
+      });
+
+      el.profileSelect.addEventListener('change', async () => {
+        const profileKey = el.profileSelect.value;
+        const profiles = getProfiles();
+        if (profiles[profileKey]) {
+          state = { ...state, ...profiles[profileKey] };
+          saveState();
+          syncInitialUI();
+          await startCamera();
+          showToast(`Perfil "${profileKey}" cargado`);
+        } else {
+          showToast('Este perfil aún no tiene ajustes guardados');
+        }
+      });
+
+      el.btnExportJson.addEventListener('click', () => {
+        const dataStr = JSON.stringify(state, null, 2);
+        const blob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `obs-webcam-config-${state.roomId}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('Configuración exportada');
+      });
+
+      el.btnImportJson.addEventListener('click', () => el.fileImport.click());
+
+      el.fileImport.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async (evt) => {
+          try {
+            const imported = JSON.parse(evt.target.result);
+            state = { ...defaultState, ...imported };
+            saveState();
+            syncInitialUI();
+            initPeerEmitter();
+            await startCamera();
+            showToast('Configuración importada correctamente');
+          } catch (err) {
+            showToast('Error: Archivo JSON inválido');
+          }
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+      });
+
+      el.btnResetAll.addEventListener('click', async () => {
+        if (!confirm('¿Restablecer todos los ajustes de cámara a valores de fábrica?')) return;
+        const keepRoomId = state.roomId;
+        state = { ...defaultState, roomId: keepRoomId };
+        saveState();
+        syncInitialUI();
+        await startCamera();
+        showToast('Valores restablecidos');
+      });
+
+      // Pantalla negra OLED (ahorro de batería y calor)
+      el.btnOled.addEventListener('click', () => {
+        el.oledSaver.classList.add('active');
+      });
+
+      let lastTap = 0;
+      el.oledSaver.addEventListener('click', () => {
+        const now = Date.now();
+        if (now - lastTap < 350) {
+          el.oledSaver.classList.remove('active');
+        }
+        lastTap = now;
+      });
+
+      /* ------------------------------------------------------------------------
+         ARRANQUE DE LA APLICACIÓN MÓVIL
+         ------------------------------------------------------------------------ */
+      (async () => {
+        syncInitialUI();
+        await requestWakeLock();
+        await startCamera();
+        initPeerEmitter();
+      })();
+    }
+  </script>
+</body>
+</html>
