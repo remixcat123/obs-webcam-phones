@@ -136,6 +136,8 @@
             <option value="1920x1080">1920x1080 (1080p Horiz.)</option>
             <option value="1080x1920">1080x1920 (1080p Vert.)</option>
             <option value="854x480">854x480 (480p Ligero)</option>
+            <option value="3840x2160">3840x2160 (4K Horiz.)</option>
+            <option value="2160x3840">2160x3840 (4K Vert.)</option>
           </select>
         </div>
         <div style="flex: 0.6;">
@@ -225,16 +227,89 @@
         <input type="range" id="range-focusDistance" min="0" max="1" step="0.01" value="0.25" disabled />
       </div>
 
-      <!-- 6. Zoom -->
-      <div class="sensor-control" id="ctrl-zoom">
+    <!-- 6. Zoom -->
+    <div class="sensor-control" id="ctrl-zoom">
         <div class="sensor-header">
-          <div>
-            <span class="sensor-name">Zoom Óptico/Digital</span>
-            <span class="sensor-val" id="val-zoom">1.0x</span>
-          </div>
+            <div>
+                <span class="sensor-name">Zoom Óptico/Digital</span>
+                <span class="sensor-val" id="val-zoom">1.0x</span>
+            </div>
         </div>
         <input type="range" id="range-zoom" min="1" max="5" step="0.1" value="1" />
-      </div>
+    </div>
+    
+    <!-- Linterna / Flash (torch) -->
+    <div class="sensor-control" id="ctrl-torch" data-cap="torch" style="display: none;">
+        <div class="sensor-header">
+            <span class="sensor-name">Linterna / Flash (Torch)</span>
+            <label class="mode-toggle">
+                <input type="checkbox" id="toggle-torch" />
+                <span>Encendida</span>
+            </label>
+        </div>
+    </div>
+    
+    <!-- Pan y Tilt (PTZ) -->
+    <div class="sensor-control" id="ctrl-pan" data-cap="pan" style="display: none;">
+        <div class="sensor-header">
+            <div>
+                <span class="sensor-name">Paneo Horizontal (Pan)</span>
+                <span class="sensor-val" id="val-pan">0</span>
+            </div>
+        </div>
+        <input type="range" id="range-pan" min="-180" max="180" step="1" value="0" />
+    </div>
+    
+    <div class="sensor-control" id="ctrl-tilt" data-cap="tilt" style="display: none;">
+        <div class="sensor-header">
+            <div>
+                <span class="sensor-name">Inclinación Vertical (Tilt)</span>
+                <span class="sensor-val" id="val-tilt">0</span>
+            </div>
+        </div>
+        <input type="range" id="range-tilt" min="-180" max="180" step="1" value="0" />
+    </div>
+    
+    <!-- Imagen: Brillo, Contraste, Saturación y Nitidez -->
+    <div class="sensor-control" id="ctrl-brightness" data-cap="brightness" style="display: none;">
+        <div class="sensor-header">
+            <div>
+                <span class="sensor-name">Brillo (Brightness)</span>
+                <span class="sensor-val" id="val-brightness">0</span>
+            </div>
+        </div>
+        <input type="range" id="range-brightness" min="-100" max="100" step="1" value="0" />
+    </div>
+    
+    <div class="sensor-control" id="ctrl-contrast" data-cap="contrast" style="display: none;">
+        <div class="sensor-header">
+            <div>
+                <span class="sensor-name">Contraste (Contrast)</span>
+                <span class="sensor-val" id="val-contrast">0</span>
+            </div>
+        </div>
+        <input type="range" id="range-contrast" min="-100" max="100" step="1" value="0" />
+    </div>
+    
+    <div class="sensor-control" id="ctrl-saturation" data-cap="saturation" style="display: none;">
+        <div class="sensor-header">
+            <div>
+                <span class="sensor-name">Saturación (Saturation)</span>
+                <span class="sensor-val" id="val-saturation">0</span>
+            </div>
+        </div>
+        <input type="range" id="range-saturation" min="-100" max="100" step="1" value="0" />
+    </div>
+    
+    <div class="sensor-control" id="ctrl-sharpness" data-cap="sharpness" style="display: none;">
+        <div class="sensor-header">
+            <div>
+                <span class="sensor-name">Nitidez (Sharpness)</span>
+                <span class="sensor-val" id="val-sharpness">0</span>
+            </div>
+        </div>
+        <input type="range" id="range-sharpness" min="-100" max="100" step="1" value="0" />
+    </div>
     </section>
 
     <!-- Perfiles y Respaldo JSON -->

@@ -241,7 +241,14 @@ function initMobileEmitter() {
     exposureCompensation: 0,
     focusMode: 'continuous',
     focusDistance: 0.25,
-    zoom: 1
+    zoom: 1,
+    torch: false, 
+    pan: 0, 
+    tilt: 0,
+    brightness: 0, 
+    contrast: 0, 
+    saturation: 0, 
+    sharpness: 0
   };
 
   let state = loadState();
@@ -296,7 +303,20 @@ function initMobileEmitter() {
     fileImport: document.getElementById('file-import'),
     btnResetAll: document.getElementById('btn-reset-all'),
     btnOled: document.getElementById('btn-oled'),
-    oledSaver: document.getElementById('oled-saver')
+    oledSaver: document.getElementById('oled-saver'),
+    toggleTorch: document.getElementById('toggle-torch'),
+    rangePan: document.getElementById('range-pan'), 
+    valPan: document.getElementById('val-pan'),
+    rangeTilt: document.getElementById('range-tilt'), 
+    valTilt: document.getElementById('val-tilt'),
+    rangeBrightness: document.getElementById('range-brightness'), 
+    valBrightness: document.getElementById('val-brightness'),
+    rangeContrast: document.getElementById('range-contrast'), 
+    valContrast: document.getElementById('val-contrast'),
+    rangeSaturation: document.getElementById('range-saturation'), 
+    valSaturation: document.getElementById('val-saturation'),
+    rangeSharpness: document.getElementById('range-sharpness'), 
+    valSharpness: document.getElementById('val-sharpness'),
   };
 
   function loadState() {
@@ -388,71 +408,104 @@ function initMobileEmitter() {
   }
 
   async function startCamera() {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      el.cameraSelect.innerHTML = '<option value="">Requiere HTTPS o navegador compatible</option>';
-      setStatus('error', 'Sin acceso a cámara');
-      showToast('Usa HTTPS (GitHub Pages) y permite la cámara');
-      return;
-    }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    el.cameraSelect.innerHTML = '<option value="">Requiere HTTPS o navegador compatible</option>';
+    setStatus('error', 'Sin acceso a cámara');
+    showToast('Usa HTTPS (GitHub Pages) y permite la cámara');
+    return;
+  }
 
-    if (currentStream) {
-      currentStream.getTracks().forEach(t => t.stop());
-    }
+  if (currentStream) {
+    currentStream.getTracks().forEach(t => t.stop());
+  }
 
-    const baseVideo = {
-      width: { ideal: Number(state.width) },
-      height: { ideal: Number(state.height) },
-      frameRate: { ideal: Number(state.frameRate) }
-    };
+  const targetWidth = Number(state.width);
+  const targetHeight = Number(state.height);
+  const targetFps = Number(state.frameRate);
 
-    const constraints = {
-      audio: false,
-      video: state.deviceId
-        ? { ...baseVideo, deviceId: { exact: state.deviceId } }
-        : { ...baseVideo, facingMode: { ideal: 'environment' } }
-    };
+  const baseVideo = {
+    width: { ideal: targetWidth },
+    height: { ideal: targetHeight },
+    frameRate: { ideal: targetFps }
+  };
 
+  const constraints = {
+    audio: false,
+    video: state.deviceId
+      ? { ...baseVideo, deviceId: { exact: state.deviceId } }
+      : { ...baseVideo, facingMode: { ideal: 'environment' } }
+  };
+
+  try {
+    currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+  } catch (err1) {
+    console.warn('Intento 1 de cámara falló, probando sin deviceId exacto:', err1);
     try {
-      currentStream = await navigator.mediaDevices.getUserMedia(constraints);
-    } catch (err1) {
-      console.warn('Intento 1 de cámara falló, probando sin deviceId exacto:', err1);
+      currentStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { ...baseVideo, facingMode: { ideal: 'environment' } }
+      });
+    } catch (err2) {
+      console.warn('Intento 2 falló, probando video: true básico:', err2);
       try {
         currentStream = await navigator.mediaDevices.getUserMedia({
           audio: false,
-          video: { ...baseVideo, facingMode: { ideal: 'environment' } }
+          video: true
         });
-      } catch (err2) {
-        console.warn('Intento 2 falló, probando video: true básico:', err2);
-        try {
-          currentStream = await navigator.mediaDevices.getUserMedia({
-            audio: false,
-            video: true
-          });
-        } catch (err3) {
-          console.error('Error definitivo al abrir cámara:', err3);
-          el.cameraSelect.innerHTML = '<option value="">Permiso denegado o cámara ocupada</option>';
-          setStatus('error', 'Error de cámara');
-          showToast('Revisa los permisos de cámara en el navegador');
-          return;
-        }
+      } catch (err3) {
+        console.error('Error definitivo al abrir cámara:', err3);
+        el.cameraSelect.innerHTML = '<option value="">Permiso denegado o cámara ocupada</option>';
+        setStatus('error', 'Error de cámara');
+        showToast('Revisa los permisos de cámara en el navegador');
+        return;
       }
     }
-
-    videoTrack = currentStream.getVideoTracks()[0];
-    if (!videoTrack) {
-      el.cameraSelect.innerHTML = '<option value="">Sin pista de video</option>';
-      return;
-    }
-
-    el.localVideo.srcObject = currentStream;
-    el.localVideo.play().catch(() => {});
-
-    await populateCameras();
-    replaceStreamTrackInActiveCalls(videoTrack);
-    inspectCapabilitiesAndSyncUI();
-    await applyAllHardwareConstraints();
-    updateResolutionBadge();
   }
+
+  videoTrack = currentStream.getVideoTracks()[0];
+  if (!videoTrack) {
+    el.cameraSelect.innerHTML = '<option value="">Sin pista de video</option>';
+    return;
+  }
+
+  el.localVideo.srcObject = currentStream;
+  el.localVideo.play().catch(() => {});
+
+  await populateCameras();
+  replaceStreamTrackInActiveCalls(videoTrack);
+  inspectCapabilitiesAndSyncUI();
+  await applyAllHardwareConstraints();
+  updateResolutionBadge();
+
+  // Diagnóstico útil en consola: qué pidió la app vs qué entregó el sensor
+  const actual = videoTrack.getSettings();
+  const caps = typeof videoTrack.getCapabilities === 'function' ? videoTrack.getCapabilities() : {};
+  console.log('[Resolución]', {
+    solicitada: `${targetWidth}x${targetHeight} @ ${targetFps}fps`,
+    obtenida: `${actual.width}x${actual.height} @ ${Math.round(actual.frameRate || 0)}fps`,
+    maxWidthCap: caps.width ? caps.width.max : 'N/A',
+    maxHeightCap: caps.height ? caps.height.max : 'N/A'
+  });
+
+  if (actual.width < targetWidth || actual.height < targetHeight) {
+    showToast(`Sensor limitó a ${actual.width}x${actual.height}`);
+  }
+}
+
+function updateResolutionBadge() {
+  if (!videoTrack) return;
+  const settings = videoTrack.getSettings();
+  const w = settings.width || state.width;
+  const h = settings.height || state.height;
+  const fps = Math.round(settings.frameRate || state.frameRate);
+  el.resBadge.textContent = `${w}x${h} @ ${fps}fps`;
+
+  if (h > w) {
+    el.previewBox.classList.add('portrait');
+  } else {
+    el.previewBox.classList.remove('portrait');
+  }
+}
 
   function updateResolutionBadge() {
     if (!videoTrack) return;
@@ -493,71 +546,108 @@ function initMobileEmitter() {
     return clamped;
   }
 
-  function inspectCapabilitiesAndSyncUI() {
-    if (!videoTrack || typeof videoTrack.getCapabilities !== 'function') {
-      capabilities = {};
-      return;
-    }
+  function setControlVisible(ctrlId, visible) {
+  const box = document.getElementById(ctrlId);
+  if (!box) return;
+  box.style.display = visible ? '' : 'none';
+  box.classList.remove('unsupported');
+}
 
-    capabilities = videoTrack.getCapabilities();
-
-    const wbSupported = Array.isArray(capabilities.whiteBalanceMode);
-    document.getElementById('ctrl-wb').classList.toggle('unsupported', !wbSupported && !capabilities.colorTemperature);
-    el.autoWb.checked = state.whiteBalanceMode === 'continuous';
-    if (capabilities.colorTemperature) {
-      state.colorTemperature = configureSlider(el.rangeCt, capabilities.colorTemperature, state.colorTemperature);
-    }
-    el.rangeCt.disabled = el.autoWb.checked || !capabilities.colorTemperature;
-    el.valCt.textContent = `${state.colorTemperature}K`;
-
-    const expSupported = Array.isArray(capabilities.exposureMode);
-    document.getElementById('ctrl-exp').classList.toggle('unsupported', !expSupported && !capabilities.exposureTime);
-    el.autoExp.checked = state.exposureMode === 'continuous';
-    if (capabilities.exposureTime) {
-      state.exposureTime = configureSlider(el.rangeExp, capabilities.exposureTime, state.exposureTime);
-    }
-    el.rangeExp.disabled = el.autoExp.checked || !capabilities.exposureTime;
-    el.valExp.textContent = `${state.exposureTime}`;
-
-    if (capabilities.iso) {
-      state.iso = configureSlider(el.rangeIso, capabilities.iso, state.iso, document.getElementById('ctrl-iso'));
-      el.rangeIso.disabled = el.autoExp.checked;
-    } else {
-      document.getElementById('ctrl-iso').classList.add('unsupported');
-    }
-    el.valIso.textContent = `${state.iso}`;
-
-    if (capabilities.exposureCompensation) {
-      state.exposureCompensation = configureSlider(
-        el.rangeEv,
-        capabilities.exposureCompensation,
-        state.exposureCompensation,
-        document.getElementById('ctrl-ev')
-      );
-      el.rangeEv.disabled = !el.autoExp.checked;
-    } else {
-      document.getElementById('ctrl-ev').classList.add('unsupported');
-    }
-    el.valEv.textContent = `${state.exposureCompensation}`;
-
-    const focusSupported = Array.isArray(capabilities.focusMode);
-    document.getElementById('ctrl-focus').classList.toggle('unsupported', !focusSupported && !capabilities.focusDistance);
-    el.autoFocus.checked = state.focusMode === 'continuous';
-    if (capabilities.focusDistance) {
-      state.focusDistance = configureSlider(el.rangeFocus, capabilities.focusDistance, state.focusDistance);
-    }
-    el.rangeFocus.disabled = el.autoFocus.checked || !capabilities.focusDistance;
-    el.valFocus.textContent = Number(state.focusDistance).toFixed(2);
-
-    if (capabilities.zoom) {
-      state.zoom = configureSlider(el.rangeZoom, capabilities.zoom, state.zoom, document.getElementById('ctrl-zoom'));
-    } else {
-      document.getElementById('ctrl-zoom').classList.add('unsupported');
-    }
-    el.valZoom.textContent = `${Number(state.zoom).toFixed(1)}x`;
-
-    saveState();
+function inspectCapabilitiesAndSyncUI() {
+  if (!videoTrack || typeof videoTrack.getCapabilities !== 'function') {
+    capabilities = {};
+    return;
   }
+
+  capabilities = videoTrack.getCapabilities();
+  console.log('[Capacidades del sensor]:', Object.keys(capabilities));
+
+  // Balance de blancos y temperatura
+  const hasWb = Array.isArray(capabilities.whiteBalanceMode) || Boolean(capabilities.colorTemperature);
+  setControlVisible('ctrl-wb', hasWb);
+  el.autoWb.checked = state.whiteBalanceMode === 'continuous';
+  if (capabilities.colorTemperature) {
+    state.colorTemperature = configureSlider(el.rangeCt, capabilities.colorTemperature, state.colorTemperature);
+  }
+  el.rangeCt.disabled = el.autoWb.checked || !capabilities.colorTemperature;
+  el.valCt.textContent = `${state.colorTemperature}K`;
+
+  // Exposición (exposureMode / exposureTime)
+  const hasExp = Array.isArray(capabilities.exposureMode) || Boolean(capabilities.exposureTime);
+  setControlVisible('ctrl-exp', hasExp);
+  el.autoExp.checked = state.exposureMode === 'continuous';
+  if (capabilities.exposureTime) {
+    state.exposureTime = configureSlider(el.rangeExp, capabilities.exposureTime, state.exposureTime);
+  }
+  el.rangeExp.disabled = el.autoExp.checked || !capabilities.exposureTime;
+  el.valExp.textContent = `${state.exposureTime}`;
+
+  // ISO (solo si el sensor expone iso)
+  const hasIso = Boolean(capabilities.iso);
+  setControlVisible('ctrl-iso', hasIso);
+  if (hasIso) {
+    state.iso = configureSlider(el.rangeIso, capabilities.iso, state.iso);
+    el.rangeIso.disabled = el.autoExp.checked;
+    el.valIso.textContent = `${state.iso}`;
+  }
+
+  // Compensación de exposición (exposureCompensation)
+  const hasEv = Boolean(capabilities.exposureCompensation);
+  setControlVisible('ctrl-ev', hasEv);
+  if (hasEv) {
+    state.exposureCompensation = configureSlider(el.rangeEv, capabilities.exposureCompensation, state.exposureCompensation);
+    el.rangeEv.disabled = !el.autoExp.checked;
+    el.valEv.textContent = `${state.exposureCompensation}`;
+  }
+
+  // Enfoque (focusMode / focusDistance)
+  const hasFocus = Array.isArray(capabilities.focusMode) || Boolean(capabilities.focusDistance);
+  setControlVisible('ctrl-focus', hasFocus);
+  el.autoFocus.checked = state.focusMode === 'continuous';
+  if (capabilities.focusDistance) {
+    state.focusDistance = configureSlider(el.rangeFocus, capabilities.focusDistance, state.focusDistance);
+  }
+  el.rangeFocus.disabled = el.autoFocus.checked || !capabilities.focusDistance;
+  el.valFocus.textContent = Number(state.focusDistance).toFixed(2);
+
+  // Zoom
+  const hasZoom = Boolean(capabilities.zoom);
+  setControlVisible('ctrl-zoom', hasZoom);
+  if (hasZoom) {
+    state.zoom = configureSlider(el.rangeZoom, capabilities.zoom, state.zoom);
+    el.valZoom.textContent = `${Number(state.zoom).toFixed(1)}x`;
+  }
+
+  // Linterna / Flash (torch: boolean)
+  const hasTorch = Boolean(capabilities.torch);
+  setControlVisible('ctrl-torch', hasTorch);
+  if (hasTorch && el.toggleTorch) {
+    state.torch = Boolean(state.torch);
+    el.toggleTorch.checked = state.torch;
+  }
+
+  // Controles de rango adicionales (PTZ e Imagen)
+  const rangeCaps = [
+    { key: 'pan', ctrlId: 'ctrl-pan', rangeEl: el.rangePan, valEl: el.valPan, fmt: v => `${v}` },
+    { key: 'tilt', ctrlId: 'ctrl-tilt', rangeEl: el.rangeTilt, valEl: el.valTilt, fmt: v => `${v}` },
+    { key: 'brightness', ctrlId: 'ctrl-brightness', rangeEl: el.rangeBrightness, valEl: el.valBrightness, fmt: v => `${v}` },
+    { key: 'contrast', ctrlId: 'ctrl-contrast', rangeEl: el.rangeContrast, valEl: el.valContrast, fmt: v => `${v}` },
+    { key: 'saturation', ctrlId: 'ctrl-saturation', rangeEl: el.rangeSaturation, valEl: el.valSaturation, fmt: v => `${v}` },
+    { key: 'sharpness', ctrlId: 'ctrl-sharpness', rangeEl: el.rangeSharpness, valEl: el.valSharpness, fmt: v => `${v}` }
+  ];
+
+  rangeCaps.forEach(({ key, ctrlId, rangeEl, valEl, fmt }) => {
+    const cap = capabilities[key];
+    const supported = Boolean(cap && typeof cap.min === 'number' && typeof cap.max === 'number');
+    setControlVisible(ctrlId, supported);
+    if (supported && rangeEl && valEl) {
+      state[key] = configureSlider(rangeEl, cap, state[key]);
+      valEl.textContent = fmt(state[key]);
+    }
+  });
+
+  saveState();
+}
 
   async function applySingleConstraint(key, value) {
     if (!videoTrack) return;
@@ -570,49 +660,77 @@ function initMobileEmitter() {
     }
   }
 
-  async function applyAllHardwareConstraints() {
-    if (!videoTrack) return;
+async function applyAllHardwareConstraints() {
+  if (!videoTrack) return;
 
-    if (Array.isArray(capabilities.whiteBalanceMode) && capabilities.whiteBalanceMode.includes(state.whiteBalanceMode)) {
-      await applySingleConstraint('whiteBalanceMode', state.whiteBalanceMode);
-    }
-    if (state.whiteBalanceMode === 'manual' && capabilities.colorTemperature) {
-      const val = clampValue(state.colorTemperature, capabilities.colorTemperature, 5000);
-      await applySingleConstraint('colorTemperature', val);
-    }
-
-    if (Array.isArray(capabilities.exposureMode) && capabilities.exposureMode.includes(state.exposureMode)) {
-      await applySingleConstraint('exposureMode', state.exposureMode);
-    }
-    if (state.exposureMode === 'manual') {
-      if (capabilities.exposureTime) {
-        const expVal = clampValue(state.exposureTime, capabilities.exposureTime, 300);
-        await applySingleConstraint('exposureTime', expVal);
-      }
-      if (capabilities.iso) {
-        const isoVal = clampValue(state.iso, capabilities.iso, 400);
-        await applySingleConstraint('iso', isoVal);
-      }
-    } else {
-      if (capabilities.exposureCompensation) {
-        const evVal = clampValue(state.exposureCompensation, capabilities.exposureCompensation, 0);
-        await applySingleConstraint('exposureCompensation', evVal);
-      }
-    }
-
-    if (Array.isArray(capabilities.focusMode) && capabilities.focusMode.includes(state.focusMode)) {
-      await applySingleConstraint('focusMode', state.focusMode);
-    }
-    if (state.focusMode === 'manual' && capabilities.focusDistance) {
-      const focusVal = clampValue(state.focusDistance, capabilities.focusDistance, 0.25);
-      await applySingleConstraint('focusDistance', focusVal);
-    }
-
-    if (capabilities.zoom) {
-      const zoomVal = clampValue(state.zoom, capabilities.zoom, 1);
-      await applySingleConstraint('zoom', zoomVal);
-    }
+  if (Array.isArray(capabilities.whiteBalanceMode) && capabilities.whiteBalanceMode.includes(state.whiteBalanceMode)) {
+    await applySingleConstraint('whiteBalanceMode', state.whiteBalanceMode);
   }
+  if (state.whiteBalanceMode === 'manual' && capabilities.colorTemperature) {
+    await applySingleConstraint('colorTemperature', clampValue(state.colorTemperature, capabilities.colorTemperature, 5000));
+  }
+
+  if (Array.isArray(capabilities.exposureMode) && capabilities.exposureMode.includes(state.exposureMode)) {
+    await applySingleConstraint('exposureMode', state.exposureMode);
+  }
+  if (state.exposureMode === 'manual') {
+    if (capabilities.exposureTime) {
+      await applySingleConstraint('exposureTime', clampValue(state.exposureTime, capabilities.exposureTime, 300));
+    }
+    if (capabilities.iso) {
+      await applySingleConstraint('iso', clampValue(state.iso, capabilities.iso, 400));
+    }
+  } else if (capabilities.exposureCompensation) {
+    await applySingleConstraint('exposureCompensation', clampValue(state.exposureCompensation, capabilities.exposureCompensation, 0));
+  }
+
+  if (Array.isArray(capabilities.focusMode) && capabilities.focusMode.includes(state.focusMode)) {
+    await applySingleConstraint('focusMode', state.focusMode);
+  }
+  if (state.focusMode === 'manual' && capabilities.focusDistance) {
+    await applySingleConstraint('focusDistance', clampValue(state.focusDistance, capabilities.focusDistance, 0.25));
+  }
+
+  if (capabilities.zoom) {
+    await applySingleConstraint('zoom', clampValue(state.zoom, capabilities.zoom, 1));
+  }
+
+  if (capabilities.torch) {
+    await applySingleConstraint('torch', Boolean(state.torch));
+  }
+
+  ['pan', 'tilt', 'brightness', 'contrast', 'saturation', 'sharpness'].forEach(async (key) => {
+    if (capabilities[key]) {
+      await applySingleConstraint(key, clampValue(state[key], capabilities[key], 0));
+    }
+  });
+}
+
+if (el.toggleTorch) {
+  el.toggleTorch.addEventListener('change', async () => {
+    state.torch = el.toggleTorch.checked;
+    saveState();
+    await applySingleConstraint('torch', state.torch);
+  });
+}
+
+[
+  ['rangePan', 'pan', el.valPan, v => `${v}`],
+  ['rangeTilt', 'tilt', el.valTilt, v => `${v}`],
+  ['rangeBrightness', 'brightness', el.valBrightness, v => `${v}`],
+  ['rangeContrast', 'contrast', el.valContrast, v => `${v}`],
+  ['rangeSaturation', 'saturation', el.valSaturation, v => `${v}`],
+  ['rangeSharpness', 'sharpness', el.valSharpness, v => `${v}`]
+].forEach(([elKey, stateKey, valNode, formatter]) => {
+  const inputNode = el[elKey];
+  if (!inputNode || !valNode) return;
+  inputNode.addEventListener('input', async () => {
+    state[stateKey] = Number(inputNode.value);
+    valNode.textContent = formatter(state[stateKey]);
+    saveState();
+    await applySingleConstraint(stateKey, state[stateKey]);
+  });
+});
 
   /* ------------------------------------------------------------------------
      3. WEBRTC (PEERJS), AUTENTICACIÓN Y BITRATE
