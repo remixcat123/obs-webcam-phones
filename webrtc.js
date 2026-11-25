@@ -10,6 +10,13 @@ function getPeerConstructor() {
   return null;
 }
 
+function hasValidVideoStream(stream) {
+  if (!stream || typeof stream.getVideoTracks !== 'function') {
+    return false;
+  }
+  return stream.getVideoTracks().some((t) => t && t.readyState === 'live');
+}
+
 export async function applySenderEncodingParams(peerConnection, bitrateKbps) {
   if (!peerConnection || typeof peerConnection.getSenders !== 'function') {
     return;
@@ -214,9 +221,12 @@ export function createEmitterPeer(options = {}) {
     }
 
     const stream = typeof getStream === 'function' ? getStream() : null;
-    if (!stream) {
-      const streamError = new Error('No hay MediaStream activo disponible para responder la llamada.');
+    if (!hasValidVideoStream(stream)) {
+      const streamError = new Error('No hay MediaStream de video activo disponible para responder la llamada.');
       try {
+        if (call.peerConnection && typeof call.peerConnection.close === 'function') {
+          call.peerConnection.close();
+        }
         call.close();
       } catch (_) {}
       notifyError(streamError);
@@ -315,6 +325,7 @@ export function startViewerAutoHealing(options = {}) {
 
   let stopped = false;
   let retryTimer = null;
+  let noStreamWatchdogTimer = null;
   let peer = null;
   let activeCall = null;
   let hasActiveStream = false;
@@ -337,7 +348,15 @@ export function startViewerAutoHealing(options = {}) {
     }
   };
 
+  const clearNoStreamWatchdog = () => {
+    if (noStreamWatchdogTimer !== null) {
+      clearTimeout(noStreamWatchdogTimer);
+      noStreamWatchdogTimer = null;
+    }
+  };
+
   const cleanupCall = () => {
+    clearNoStreamWatchdog();
     isCalling = false;
     hasActiveStream = false;
     if (activeCall) {
@@ -385,6 +404,7 @@ export function startViewerAutoHealing(options = {}) {
     if (stopped || !targetPeerId) return;
     if (!peer || peer.destroyed || !peer.open) {
       emitState('connecting');
+      scheduleReconnect();
       return;
     }
     if (isCalling || hasActiveStream) {
@@ -434,8 +454,16 @@ export function startViewerAutoHealing(options = {}) {
       scheduleReconnect();
     };
 
+    clearNoStreamWatchdog();
+    noStreamWatchdogTimer = setTimeout(() => {
+      if (!stopped && activeCall === call && !streamReceived) {
+        handleStreamLoss(false);
+      }
+    }, Math.max(5000, interval * 2.5));
+
     call.on('stream', (remoteStream) => {
       if (stopped || activeCall !== call) return;
+      clearNoStreamWatchdog();
       streamReceived = true;
       hasActiveStream = true;
       isCalling = false;
@@ -458,6 +486,13 @@ export function startViewerAutoHealing(options = {}) {
       }
     });
 
+    call.on('iceStateChanged', (iceState) => {
+      if (stopped || activeCall !== call) return;
+      if (iceState === 'failed' || iceState === 'disconnected') {
+        handleStreamLoss(!streamReceived);
+      }
+    });
+
     call.on('close', () => {
       if (!stopped && activeCall === call) {
         handleStreamLoss(!streamReceived);
@@ -471,6 +506,14 @@ export function startViewerAutoHealing(options = {}) {
     });
 
     if (call.peerConnection) {
+      call.peerConnection.oniceconnectionstatechange = () => {
+        if (stopped || activeCall !== call) return;
+        const iceState = call.peerConnection.iceConnectionState;
+        if (iceState === 'failed' || iceState === 'disconnected') {
+          handleStreamLoss(!streamReceived);
+        }
+      };
+
       call.peerConnection.addEventListener('connectionstatechange', () => {
         if (stopped || activeCall !== call) return;
         const state = call.peerConnection.connectionState;

@@ -17,16 +17,12 @@ function getOrCreateTrackQueue(track) {
   return queueState;
 }
 
-function buildVideoConstraintCandidate(options = {}, tier = 0) {
+function buildVideoConstraintCandidate(options = {}, tier = 0, hasExplicitDevice = false) {
   const { deviceId, width, height, fps } = options;
   const video = {};
 
-  if (typeof deviceId === 'string' && deviceId.trim() !== '') {
-    if (tier <= 3) {
-      video.deviceId = { exact: deviceId.trim() };
-    } else if (tier === 4) {
-      video.deviceId = { ideal: deviceId.trim() };
-    }
+  if (hasExplicitDevice) {
+    video.deviceId = { exact: deviceId.trim() };
   }
 
   const hasWidth = typeof width === 'number' && Number.isFinite(width) && width > 0;
@@ -49,10 +45,10 @@ function buildVideoConstraintCandidate(options = {}, tier = 0) {
     video.width = { ideal: 1280 };
     video.height = { ideal: 720 };
   } else if (tier === 4) {
-    // Intento suave con deviceId ideal y sin restricciones rígidas de resolución/FPS
+    // Intento suave conservando deviceId exacto (si aplica) sin restricciones de resolución/FPS
   } else {
-    // Respaldo final mínimo: cualquier cámara disponible por defecto del sistema
-    return true;
+    // Respaldo final mínimo: solo permitido cuando no se solicitó un deviceId específico
+    return hasExplicitDevice ? video : true;
   }
 
   return Object.keys(video).length > 0 ? video : true;
@@ -124,11 +120,15 @@ export async function openCameraStream(options = {}) {
   }
 
   const opts = options && typeof options === 'object' ? options : {};
+  const hasExplicitDevice =
+    typeof opts.deviceId === 'string' && opts.deviceId.trim() !== '';
+  const maxTier = hasExplicitDevice ? 4 : 5;
+
   let lastError = null;
   let stream = null;
 
-  for (let tier = 0; tier <= 5; tier += 1) {
-    const videoConstraint = buildVideoConstraintCandidate(opts, tier);
+  for (let tier = 0; tier <= maxTier; tier += 1) {
+    const videoConstraint = buildVideoConstraintCandidate(opts, tier, hasExplicitDevice);
     const constraints = {
       audio: false,
       video: videoConstraint,
@@ -143,7 +143,18 @@ export async function openCameraStream(options = {}) {
   }
 
   if (!stream) {
-    throw lastError || new Error('No se pudo inicializar el flujo de cámara.');
+    const baseMsg =
+      lastError && lastError.message
+        ? lastError.message
+        : 'No se pudo inicializar el flujo de cámara.';
+    const wrappedError = new Error(
+      hasExplicitDevice
+        ? `No se pudo abrir la cámara solicitada (${opts.deviceId.trim()}): ${baseMsg}`
+        : baseMsg
+    );
+    wrappedError.name = lastError && lastError.name ? lastError.name : 'OverconstrainedError';
+    wrappedError.cause = lastError;
+    throw wrappedError;
   }
 
   const [track] = stream.getVideoTracks();
@@ -337,7 +348,16 @@ export async function reapplyCurrentTrackConstraints(track, currentSettings = {}
   const candidatePatch = {};
   for (const [key, value] of Object.entries(sourceSettings)) {
     if (value === undefined || value === null) continue;
-    if (key === 'deviceId' || key === 'groupId' || key === 'width' || key === 'height' || key === 'frameRate' || key === 'aspectRatio' || key === 'facingMode' || key === 'resizeMode') {
+    if (
+      key === 'deviceId' ||
+      key === 'groupId' ||
+      key === 'width' ||
+      key === 'height' ||
+      key === 'frameRate' ||
+      key === 'aspectRatio' ||
+      key === 'facingMode' ||
+      key === 'resizeMode'
+    ) {
       continue;
     }
     if (capabilities && Object.prototype.hasOwnProperty.call(capabilities, key)) {

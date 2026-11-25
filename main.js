@@ -286,12 +286,24 @@ async function propagateTrackToActivePeers(newTrack) {
 async function initializeOrSwitchCamera(options = {}) {
   const { resetFresh = true, preferredDeviceId = '' } = options || {};
   const preset = getSelectedResolutionPreset();
-  const targetDeviceId = preferredDeviceId || appState.selectedDeviceId || undefined;
+  const isExplicitLensSwitch =
+    typeof preferredDeviceId === 'string' && preferredDeviceId.trim() !== '';
+  const targetDeviceId = isExplicitLensSwitch
+    ? preferredDeviceId.trim()
+    : appState.selectedDeviceId || undefined;
 
   const previousStream = appState.stream;
+  const previousDeviceId = appState.selectedDeviceId;
 
   try {
     setStatus('init', 'Iniciando...');
+
+    // En dispositivos móviles, liberar el stream previo antes de abrir otro lente evita bloqueos de hardware
+    if (isExplicitLensSwitch && previousStream) {
+      stopCameraStream(previousStream);
+      appState.stream = null;
+      appState.track = null;
+    }
 
     const opened = await openCameraStream({
       deviceId: targetDeviceId,
@@ -307,6 +319,8 @@ async function initializeOrSwitchCamera(options = {}) {
 
     if (typeof appState.settings.deviceId === 'string' && appState.settings.deviceId) {
       appState.selectedDeviceId = appState.settings.deviceId;
+    } else if (isExplicitLensSwitch) {
+      appState.selectedDeviceId = targetDeviceId;
     }
 
     const localVideo = getEl('local-video');
@@ -390,9 +404,11 @@ async function initializeOrSwitchCamera(options = {}) {
       }
     );
 
-    if (previousStream && previousStream !== appState.stream) {
+    if (!isExplicitLensSwitch && previousStream && previousStream !== appState.stream) {
       await propagateTrackToActivePeers(appState.track);
       stopCameraStream(previousStream);
+    } else if (isExplicitLensSwitch && appState.track) {
+      await propagateTrackToActivePeers(appState.track);
     }
 
     if (resetFresh) {
@@ -411,6 +427,13 @@ async function initializeOrSwitchCamera(options = {}) {
     if (previousStream && previousStream !== appState.stream) {
       stopCameraStream(previousStream);
     }
+
+    // Si falló al cambiar de lente, conservar el ID anterior en el estado sin sobrescribirlo
+    // y no revertir silenciosamente el <select> si el usuario eligió otra opción
+    if (!isExplicitLensSwitch) {
+      appState.selectedDeviceId = previousDeviceId;
+    }
+
     setStatus('error', 'Error de cámara');
     showToast(
       `Error de cámara: ${err && err.message ? err.message : 'No se pudo acceder al sensor'}`
@@ -683,10 +706,10 @@ function bindEmitterEvents() {
   const cameraSelect = getEl('camera-select');
   if (cameraSelect) {
     cameraSelect.addEventListener('change', async () => {
-      appState.selectedDeviceId = cameraSelect.value;
+      const requestedDeviceId = cameraSelect.value;
       await initializeOrSwitchCamera({
         resetFresh: true,
-        preferredDeviceId: appState.selectedDeviceId,
+        preferredDeviceId: requestedDeviceId,
       });
     });
   }
@@ -927,6 +950,21 @@ export async function initApp() {
 
     const authForm = getEl('obs-auth-form');
     const authInput = getEl('obs-auth-input');
+    const obsVideo = getEl('obs-video');
+
+    if (obsVideo) {
+      obsVideo.muted = true;
+      obsVideo.playsInline = true;
+    }
+
+    const attachTrackListeners = (track) => {
+      if (!track) return;
+      track.addEventListener('unmute', () => {
+        if (obsVideo) {
+          obsVideo.play().catch(() => {});
+        }
+      });
+    };
 
     const controller = startViewerAutoHealing({
       targetPeerId: targetRoomId,
@@ -934,11 +972,29 @@ export async function initApp() {
       peerConfig: getPeerConfig(),
       onStream: (remoteStream) => {
         hideAuthModal();
-        const obsVideo = getEl('obs-video');
-        if (obsVideo && obsVideo.srcObject !== remoteStream) {
+        if (!obsVideo || !remoteStream) return;
+
+        if (obsVideo.srcObject !== remoteStream) {
           obsVideo.srcObject = remoteStream;
-          obsVideo.play().catch(() => {});
         }
+
+        if (typeof remoteStream.getTracks === 'function') {
+          remoteStream.getTracks().forEach((t) => attachTrackListeners(t));
+        }
+
+        if (typeof remoteStream.addEventListener === 'function') {
+          remoteStream.addEventListener('addtrack', (ev) => {
+            if (ev && ev.track) {
+              attachTrackListeners(ev.track);
+            }
+            if (obsVideo.srcObject !== remoteStream) {
+              obsVideo.srcObject = remoteStream;
+            }
+            obsVideo.play().catch(() => {});
+          });
+        }
+
+        obsVideo.play().catch(() => {});
       },
       onAuthRequired: (reason) => {
         showAuthModal(reason || 'Introduce la contraseña de la sala.');
@@ -1021,7 +1077,9 @@ export function renderSensorControls(
       modeCheckbox.type = 'checkbox';
       const currentModeVal = currSettings[spec.modeKey];
       modeCheckbox.checked =
-        currentModeVal === 'continuous' || currentModeVal === 'single-shot' || currentModeVal === 'auto';
+        currentModeVal === 'continuous' ||
+        currentModeVal === 'single-shot' ||
+        currentModeVal === 'auto';
 
       modeCheckbox.addEventListener('change', () => {
         const isAutoNow = Boolean(modeCheckbox.checked);
