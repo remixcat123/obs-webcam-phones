@@ -1,532 +1,509 @@
-/* ==========================================================================
-   WEBCAM P2P PERSISTENTE PARA OBS STUDIO (Versión 2)
-   Hoja de Estilos CSS Modular Corregida
-   Archivo: styles.css
-   ========================================================================== */
+/* styles.css — Estilos para Webcam P2P Persistente para OBS Studio (v2.1) */
 
 :root {
-  --bg: #0a0a0c;
-  --surface: #141418;
-  --surface-2: #1e1e24;
-  --border: #2c2c35;
-  --primary: #3b82f6;
-  --primary-hover: #2563eb;
-  --success: #10b981;
-  --warning: #f59e0b;
+  --bg-body: #0f1115;
+  --bg-panel: #171a21;
+  --bg-input: #1f2430;
+  --bg-hover: #272d3b;
+  --border-color: #2c3342;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
   --danger: #ef4444;
-  --text: #f3f4f6;
-  --text-muted: #9ca3af;
-  --radius: 12px;
+  --success: #22c55e;
+  --warning: #eab308;
+  --radius: 10px;
 }
 
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
+}
+
+html,
+body {
   margin: 0;
   padding: 0;
-  -webkit-tap-highlight-color: transparent;
+  min-height: 100%;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background-color: var(--bg-body);
+  color: var(--text-primary);
+  line-height: 1.45;
 }
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
-  background-color: var(--bg);
-  color: var(--text);
-  line-height: 1.4;
-  overflow-x: hidden;
-}
-
-/* ==========================================================================
-   MODO RECEPTOR (OBS STUDIO) - 100% LIMPIO Y TRANSPARENTE
-   ========================================================================== */
-body.obs-mode {
-  background: transparent !important;
-  overflow: hidden !important;
-  width: 100vw;
-  height: 100vh;
-}
-
-body.obs-mode #emitter-app {
+/* Utilidad transversal de ocultamiento */
+.hidden {
   display: none !important;
 }
 
-body.obs-mode #obs-app {
-  display: block !important;
+/* ==========================================================================
+   Vista Receptora (#obs-app — OBS Browser Source)
+   ========================================================================== */
+
+#obs-app {
+  position: fixed;
+  inset: 0;
   width: 100vw;
   height: 100vh;
   background: transparent;
+  overflow: hidden;
 }
 
 #obs-video {
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
+  display: block;
   object-fit: contain;
   background: transparent;
-  display: block;
 }
 
-/* Modal de Autenticación para OBS Receptor */
-#obs-auth-modal.auth-modal {
-  display: none;
+/* Modal de autenticación en receptor */
+.modal-backdrop,
+.modal-backdrop--open {
   position: fixed;
   inset: 0;
-  background: rgba(10, 10, 12, 0.95);
-  z-index: 10000;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(10, 12, 16, 0.82);
+  display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 1rem;
+  z-index: 500;
 }
 
-.auth-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 20px;
-  max-width: 360px;
+.modal-card {
   width: 100%;
+  max-width: 380px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+
+.modal-card h2 {
+  margin: 0 0 0.4rem;
+  font-size: 1.15rem;
+}
+
+.modal-card p {
+  margin: 0 0 0.9rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.modal-card form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+  gap: 0.75rem;
+}
+
+.modal-card input[type="password"] {
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 0.95rem;
 }
 
 .auth-error {
-  color: var(--danger);
-  font-size: 0.8rem;
-  display: none;
+  margin: 0;
+  color: #fca5a5 !important;
+  font-size: 0.85rem !important;
 }
 
 /* ==========================================================================
-   MODO EMISOR (TELÉFONO MÓVIL)
+   Vista Emisora (#emitter-app)
    ========================================================================== */
-#obs-app {
-  display: none;
-}
 
 #emitter-app {
-  max-width: 600px;
+  max-width: 960px;
   margin: 0 auto;
-  padding: 12px 14px 64px;
+  padding: 1rem 1rem 4.5rem;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 1rem;
 }
 
-/* Cabecera y Estado */
-header {
+.emitter-header {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  background: var(--surface);
-  padding: 10px 14px;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
   border-radius: var(--radius);
-  border: 1px solid var(--border);
 }
 
-.brand {
-  font-weight: 700;
-  font-size: 0.95rem;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.v-badge {
-  font-size: 0.7rem;
-  background: var(--surface-2);
-  color: var(--primary);
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--border);
+.emitter-header h1 {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 600;
 }
 
 .status-badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.78rem;
-  font-weight: 600;
-  padding: 4px 10px;
+  gap: 0.5rem;
+  padding: 0.35rem 0.7rem;
   border-radius: 999px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  font-size: 0.85rem;
 }
 
-.dot {
-  width: 8px;
-  height: 8px;
+/* Punto de estado con modificadores de Fase 1 */
+.status-dot {
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  background: var(--warning);
+  display: inline-block;
+  flex-shrink: 0;
+  background-color: var(--warning);
 }
-.dot.ready { background: var(--primary); }
-.dot.connected { background: var(--success); box-shadow: 0 0 8px var(--success); }
-.dot.error { background: var(--danger); }
 
-/* Vista Previa de Video */
+.status-dot--init {
+  background-color: var(--warning);
+}
+
+.status-dot--ready {
+  background-color: var(--accent);
+}
+
+.status-dot--streaming {
+  background-color: var(--success);
+}
+
+.status-dot--error {
+  background-color: var(--danger);
+}
+
+/* Paneles generales */
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 1rem;
+}
+
+.panel h2 {
+  margin: 0 0 0.85rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.panel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.panel-header-row h2 {
+  margin: 0;
+}
+
+/* Contenedor adaptable de vista previa (16:9 y 9:16) */
+.preview-panel {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #0b0d11;
+}
+
 .preview-container {
   position: relative;
   width: 100%;
-  background: #000;
-  border-radius: var(--radius);
+  max-height: 65vh;
+  background: #050608;
+  border-radius: 8px;
   overflow: hidden;
-  border: 1px solid var(--border);
-  aspect-ratio: 16 / 9;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.preview-container.portrait {
+.preview-container--landscape,
+.preview-container[data-orientation="16:9"] {
+  aspect-ratio: 16 / 9;
+  max-width: 100%;
+}
+
+.preview-container--portrait,
+.preview-container[data-orientation="9:16"] {
   aspect-ratio: 9 / 16;
-  max-height: 55vh;
+  max-width: 380px;
 }
 
 #local-video {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  display: block;
+  object-fit: cover;
 }
 
-.preview-overlay {
+/* Ocultar renderizado local en Modo OLED sin detener captura/transmisión */
+.video-oled-hidden {
+  visibility: hidden;
+}
+
+.preview-overlays {
   position: absolute;
-  top: 8px;
-  left: 8px;
-  right: 8px;
+  top: 0.6rem;
+  left: 0.6rem;
+  right: 0.6rem;
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
+  gap: 0.4rem;
   pointer-events: none;
 }
 
-.pill-info {
-  background: rgba(0, 0, 0, 0.72);
-  backdrop-filter: blur(4px);
-  padding: 3px 8px;
+.badge {
+  background: rgba(15, 17, 21, 0.78);
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 6px;
-  font-size: 0.72rem;
-  font-family: monospace;
-  color: #e5e7eb;
+  padding: 0.22rem 0.55rem;
+  font-size: 0.78rem;
+  backdrop-filter: blur(4px);
 }
 
-/* Tarjetas de Control */
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px;
+/* Grillas y campos de formulario */
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 0.85rem;
+}
+
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.85rem;
+}
+
+.field {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
 }
 
-.card-title {
-  font-size: 0.82rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  font-weight: 700;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-/* Inputs y Botones */
-.row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.row > * {
-  flex: 1;
-}
-
-label.field-label {
-  display: block;
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  margin-bottom: 4px;
-}
-
-input[type="text"],
-input[type="password"],
-input[type="number"],
-select {
+.field input[type="text"],
+.field input[type="password"],
+.field input[type="number"],
+.field select {
   width: 100%;
-  background: var(--surface-2);
-  color: var(--text);
-  border: 1px solid var(--border);
+  padding: 0.55rem 0.7rem;
   border-radius: 8px;
-  padding: 9px 10px;
-  font-size: 0.88rem;
-  outline: none;
+  border: 1px solid var(--border-color);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 0.9rem;
 }
 
-input:focus, select:focus {
-  border-color: var(--primary);
+.field input:focus,
+.field select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Botones */
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.button-row.align-end {
+  align-items: flex-end;
 }
 
 button {
-  background: var(--surface-2);
-  color: var(--text);
-  border: 1px solid var(--border);
+  padding: 0.55rem 0.9rem;
   border-radius: 8px;
-  padding: 9px 12px;
-  font-size: 0.85rem;
-  font-weight: 600;
+  border: 1px solid var(--border-color);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 0.88rem;
+  font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
+  transition: background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
 }
 
-button.btn-sm {
-  padding: 4px 8px;
-  font-size: 0.75rem;
+button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: #3d4659;
 }
 
-button:active {
-  transform: scale(0.98);
-}
-
-button.primary {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: #fff;
-}
-
-button.primary:hover {
-  background: var(--primary-hover);
-}
-
-button.success {
-  background: rgba(16, 185, 129, 0.15);
-  border-color: var(--success);
-  color: var(--success);
-}
-
-button.danger {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
-/* Controles de Sensor (Sliders + Auto/Manual) */
-.sensor-control {
-  background: var(--surface-2);
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.sensor-control.unsupported {
+button:disabled {
   opacity: 0.45;
-  pointer-events: none;
-}
-
-.sensor-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.85rem;
-}
-
-.sensor-name {
-  font-weight: 600;
-}
-
-.sensor-val {
-  font-family: monospace;
-  color: var(--primary);
-  font-weight: 700;
-  margin-left: 6px;
-}
-
-.mode-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  cursor: pointer;
-  user-select: none;
-}
-
-.mode-toggle input[type="checkbox"] {
-  accent-color: var(--primary);
-  width: 16px;
-  height: 16px;
-}
-
-input[type="range"] {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 6px;
-  background: #2e2e38;
-  border-radius: 4px;
-  outline: none;
-}
-
-input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--primary);
-  cursor: pointer;
-  border: 2px solid #fff;
-}
-
-input[type="range"]:disabled {
-  opacity: 0.35;
   cursor: not-allowed;
 }
 
-/* ==========================================================================
-   NOVEDADES V2: MONITOR VDO.NINJA ESTILO COLAPSABLE (<details>)
-   ========================================================================== */
-details.stats-details {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-  transition: all 0.2s ease;
+#copy-obs-url-btn,
+#obs-auth-submit,
+#save-profile-btn,
+#apply-profile-btn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
 }
 
-details.stats-details summary {
-  padding: 12px 14px;
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: var(--text-muted);
+#copy-obs-url-btn:hover:not(:disabled),
+#obs-auth-submit:hover:not(:disabled),
+#save-profile-btn:hover:not(:disabled),
+#apply-profile-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.fallback-box {
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--border-color);
+}
+
+/* Monitor de métricas WebRTC (#stats-details) */
+#stats-details summary {
   cursor: pointer;
+  font-weight: 600;
+  font-size: 0.95rem;
+  list-style: none;
   user-select: none;
-  outline: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
-details.stats-details summary::-webkit-details-marker {
-  display: none;
-}
-
-details.stats-details summary::after {
-  content: '▼';
-  font-size: 0.7rem;
-  transition: transform 0.2s;
-}
-
-details.stats-details[open] summary::after {
-  transform: rotate(180deg);
-}
-
-.hint-inline {
-  font-size: 0.7rem;
-  text-transform: none;
-  letter-spacing: normal;
-  font-weight: normal;
-  color: var(--text-muted);
+#stats-details[open] summary {
+  margin-bottom: 0.85rem;
 }
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-  padding: 10px 14px 14px;
-  border-top: 1px solid var(--border);
-  background: var(--surface-2);
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
 }
 
 .stat-item {
-  background: var(--surface);
-  padding: 8px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
-  border: 1px solid var(--border);
+  padding: 0.65rem 0.75rem;
   display: flex;
   flex-direction: column;
+  gap: 0.25rem;
 }
 
 .stat-label {
-  font-size: 0.7rem;
-  color: var(--text-muted);
-  text-transform: uppercase;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
 }
 
 .stat-value {
-  font-family: monospace;
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: var(--success);
-  margin-top: 2px;
+  font-size: 1rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
-/* ==========================================================================
-   PANTALLA NEGRA OLED (AHORRO TÉRMICO Y BATERÍA)
-   ========================================================================== */
-#oled-saver {
-  display: none;
+/* Filas dinámicas de controles del sensor */
+.sensor-controls-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sensor-control-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.2fr) auto minmax(140px, 2fr) 96px;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+}
+
+.sensor-control-row--disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.sensor-control-row input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.sensor-control-row input[type="number"] {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Pantalla negra pura para ahorro OLED (#oled-saver) */
+.oled-saver,
+.oled-saver--active {
   position: fixed;
   inset: 0;
-  background: #000000;
+  width: 100vw;
+  height: 100vh;
+  background-color: #000000;
+  color: #000000;
   z-index: 9999;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: #4b5563;
-  text-align: center;
-  padding: 24px;
+  cursor: pointer;
+  touch-action: manipulation;
   user-select: none;
 }
 
-#oled-saver.active {
-  display: flex;
-}
-
-.oled-title {
-  font-size: 1.1rem;
-  color: #9ca3af;
-  margin-bottom: 8px;
-}
-
-.oled-sub {
-  font-size: 0.85rem;
-}
-
-.oled-hint {
-  font-size: 0.8rem;
-  margin-top: 24px;
-  color: #6b7280;
-}
-
-/* Toast de Notificaciones */
-#toast {
+/* Notificación flotante inferior (#toast) */
+.toast {
   position: fixed;
-  bottom: 18px;
   left: 50%;
-  transform: translateX(-50%) translateY(80px);
-  background: #1f2937;
-  color: #fff;
-  padding: 10px 18px;
-  border-radius: 999px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-  border: 1px solid #374151;
-  transition: transform 0.25s ease;
-  z-index: 1000;
-  white-space: nowrap;
+  bottom: 1.25rem;
+  transform: translate(-50%, 16px);
+  max-width: min(92vw, 460px);
+  padding: 0.65rem 1rem;
+  border-radius: 8px;
+  background: #1e293b;
+  color: #f8fafc;
+  border: 1px solid #334155;
+  font-size: 0.88rem;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 10000;
 }
 
-#toast.show {
-  transform: translateX(-50%) translateY(0);
+.toast--visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
-.hint {
-  font-size: 0.74rem;
-  color: var(--text-muted);
+/* Adaptación móvil */
+@media (max-width: 640px) {
+  .sensor-control-row {
+    grid-template-columns: 1fr auto;
+  }
+
+  .sensor-control-row input[type="range"] {
+    grid-column: 1 / -1;
+  }
+
+  .sensor-control-row input[type="number"] {
+    grid-column: 1 / -1;
+  }
 }

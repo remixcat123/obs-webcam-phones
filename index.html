@@ -2,347 +2,166 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <meta name="theme-color" content="#0a0a0c" />
-  <title>Webcam P2P Persistente para OBS - v2</title>
-
-  <!-- PeerJS para señalización WebRTC ligera -->
-  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-  
-  <!-- Estilos modulares externos -->
-  <link rel="stylesheet" href="styles.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Webcam P2P Persistente para OBS Studio (v2.1)</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <script defer src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script type="module" src="./js/main.js"></script>
 </head>
 <body>
+  <!-- Vista Receptora (OBS Browser Source) -->
+  <main id="obs-app" class="hidden">
+    <video id="obs-video" autoplay playsinline></video>
 
-  <!-- ========================================================================
-       INTERFAZ MODO RECEPTOR (OBS STUDIO - VISOR TRANSPARENTE / LIMPIO)
-       ======================================================================== -->
-  <div id="obs-app">
-    <video id="obs-video" autoplay playsinline muted></video>
-    
-    <!-- Modal de contraseña en caso de que la sala requiera acceso -->
-    <div id="obs-auth-modal" class="auth-modal">
-      <div class="auth-card">
-        <h3>Sala Protegida</h3>
-        <p>Ingresa la clave para conectar con el emisor:</p>
-        <input type="password" id="obs-pass-input" placeholder="Contraseña de la sala" />
-        <span id="obs-auth-error" class="auth-error">Contraseña incorrecta</span>
-        <button id="btn-obs-auth" class="primary">Conectar</button>
+    <div id="obs-auth-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="obs-auth-title">
+      <div class="modal-card">
+        <h2 id="obs-auth-title">Autenticación de Sala</h2>
+        <p>Ingresa la clave de acceso configurada en el dispositivo emisor.</p>
+        <form id="obs-auth-form">
+          <input id="obs-auth-input" type="password" autocomplete="current-password" placeholder="Contraseña de sala" />
+          <p id="obs-auth-error" class="auth-error hidden" role="alert"></p>
+          <button id="obs-auth-submit" type="submit">Conectar</button>
+        </form>
       </div>
     </div>
-  </div>
+  </main>
 
-  <!-- ========================================================================
-       INTERFAZ MODO EMISOR (TELÉFONO MÓVIL)
-       ======================================================================== -->
-  <div id="emitter-app">
-    <header>
-      <div class="brand">
-        <span>📷 OBS Cam P2P <small class="v-badge">v2.0</small></span>
-      </div>
+  <!-- Vista Emisora -->
+  <main id="emitter-app" class="hidden">
+    <header class="emitter-header">
+      <h1>Webcam P2P OBS (v2.1)</h1>
       <div class="status-badge">
-        <span class="dot" id="status-dot"></span>
+        <span id="status-indicator" class="status-dot status-dot--init" aria-hidden="true"></span>
         <span id="status-text">Iniciando...</span>
       </div>
     </header>
 
-    <!-- Vista Previa de la Cámara -->
-    <div class="preview-container" id="preview-box">
-      <video id="local-video" autoplay playsinline muted></video>
-      <div class="preview-overlay">
-        <span class="pill-info" id="res-badge">--x-- @ --fps</span>
-        <span class="pill-info" id="wake-badge">WakeLock: --</span>
-      </div>
-    </div>
-
-    <!-- Conexión, Clave y Enlace OBS -->
-    <section class="card">
-      <div class="card-title">
-        <span>Conexión WebRTC & Sala OBS</span>
-        <button id="btn-oled" class="btn-sm">🌙 Modo OLED</button>
-      </div>
-      
-      <div class="row">
-        <div style="flex: 1.2;">
-          <label class="field-label" for="room-id">ID de Sala Fijo</label>
-          <input type="text" id="room-id" placeholder="Ej: YH97bpw" />
-        </div>
-        <div style="flex: 1.2;">
-          <label class="field-label" for="room-password">Clave Opcional (v2)</label>
-          <input type="password" id="room-password" placeholder="Sin clave" />
-        </div>
-      </div>
-
-      <div class="row">
-        <div style="flex: 1;">
-          <label class="field-label" for="bitrate-select">Bitrate Máx. WebRTC</label>
-          <select id="bitrate-select">
-            <option value="2000">2.0 Mbps</option>
-            <option value="3500" selected>3.5 Mbps (HD)</option>
-            <option value="5000">5.0 Mbps (FHD)</option>
-            <option value="8000">8.0 Mbps (Pro)</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="row">
-        <button class="primary" id="btn-copy-obs">📋 Copiar URL para OBS</button>
-        <button id="btn-reconnect-peer">🔄 Reiniciar Sala</button>
-      </div>
-      <p class="hint">En OBS: añade fuente <b>Navegador</b>, pega la URL y activa "Actualizar navegador cuando la escena se active".</p>
-    </section>
-
-    <!-- NOVEDAD V2: Monitor de Estadísticas Colapsado (Bajo Consumo) -->
-    <details class="stats-details" id="stats-details">
-      <summary>
-        <span>📊 Monitor de Métricas (v2)</span>
-        <span class="hint-inline">Click para desplegar</span>
-      </summary>
-      <div class="stats-grid">
-        <div class="stat-item">
-          <span class="stat-label">Res. Efectiva</span>
-          <span class="stat-value" id="stat-res">--</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-label">FPS Reales</span>
-          <span class="stat-value" id="stat-fps">--</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-label">Bitrate Est.</span>
-          <span class="stat-value" id="stat-bitrate">-- Mbps</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-label">Latencia (RTT)</span>
-          <span class="stat-value" id="stat-rtt">-- ms</span>
-        </div>
-      </div>
-    </details>
-
-    <!-- Selección de Lente y Formato -->
-    <section class="card">
-      <div class="card-title">Lente y Resolución</div>
-      <div>
-        <label class="field-label" for="camera-select">Cámara / Sensor Físico</label>
-        <select id="camera-select">
-          <option value="">Cargando cámaras...</option>
-        </select>
-      </div>
-      <div class="row">
-        <div>
-          <label class="field-label" for="res-preset">Resolución</label>
-          <select id="res-preset">
-            <option value="1280x720">1280x720 (HD Horiz.)</option>
-            <option value="720x1280">720x1280 (HD Vert.)</option>
-            <option value="1920x1080">1920x1080 (1080p Horiz.)</option>
-            <option value="1080x1920">1080x1920 (1080p Vert.)</option>
-            <option value="854x480">854x480 (480p Ligero)</option>
-            <option value="3840x2160">3840x2160 (4K Horiz.)</option>
-            <option value="2160x3840">2160x3840 (4K Vert.)</option>
-          </select>
-        </div>
-        <div style="flex: 0.6;">
-          <label class="field-label" for="fps-select">FPS</label>
-          <select id="fps-select">
-            <option value="24">24 fps</option>
-            <option value="30" selected>30 fps</option>
-            <option value="60">60 fps</option>
-          </select>
+    <section class="panel preview-panel">
+      <div id="preview-container" class="preview-container preview-container--landscape" data-orientation="16:9">
+        <video id="local-video" muted playsinline></video>
+        <div class="preview-overlays">
+          <span id="preview-format-badge" class="badge">— · 0 FPS</span>
+          <span id="wakelock-badge" class="badge">WakeLock: Inactivo</span>
         </div>
       </div>
     </section>
 
-    <!-- Controles Manuales del Sensor (Hardware) -->
-    <section class="card">
-      <div class="card-title">
-        <span>Ajustes Manuales del Sensor</span>
-        <button id="btn-reapply" class="btn-sm">⚡ Reaplicar</button>
+    <section class="panel connection-panel">
+      <h2>Conexión y Sala</h2>
+      <div class="grid-2">
+        <label class="field">
+          <span>ID de Sala Fijo</span>
+          <input id="room-id-input" type="text" autocomplete="off" spellcheck="false" />
+        </label>
+        <label class="field">
+          <span>Clave Opcional</span>
+          <input id="room-password-input" type="password" autocomplete="new-password" placeholder="Sin clave" />
+        </label>
+        <label class="field">
+          <span>Bitrate Máx. WebRTC</span>
+          <select id="bitrate-select"></select>
+        </label>
       </div>
 
-      <!-- 1. Temperatura de Color (Balance de Blancos) -->
-      <div class="sensor-control" id="ctrl-wb">
-        <div class="sensor-header">
-          <div>
-            <span class="sensor-name">Balance Blancos</span>
-            <span class="sensor-val" id="val-colorTemperature">5000K</span>
-          </div>
-          <label class="mode-toggle">
-            <input type="checkbox" id="auto-whiteBalanceMode" checked />
-            <span>Auto</span>
-          </label>
-        </div>
-        <input type="range" id="range-colorTemperature" min="2800" max="7500" step="50" value="5000" disabled />
+      <div class="button-row">
+        <button id="copy-obs-url-btn" type="button">Copiar URL para OBS</button>
+        <button id="reset-room-btn" type="button">Reiniciar Sala</button>
+        <button id="oled-mode-btn" type="button">Modo OLED</button>
       </div>
 
-      <!-- 2. Tiempo de Exposición (Obturación) -->
-      <div class="sensor-control" id="ctrl-exp">
-        <div class="sensor-header">
-          <div>
-            <span class="sensor-name">Exposición</span>
-            <span class="sensor-val" id="val-exposureTime">300</span>
-          </div>
-          <label class="mode-toggle">
-            <input type="checkbox" id="auto-exposureMode" checked />
-            <span>Auto</span>
-          </label>
-        </div>
-        <input type="range" id="range-exposureTime" min="10" max="10000" step="10" value="300" disabled />
+      <div id="obs-url-fallback-box" class="fallback-box hidden">
+        <label class="field">
+          <span>URL para OBS (copiar manualmente)</span>
+          <input id="obs-url-fallback-input" type="text" readonly />
+        </label>
       </div>
-
-      <!-- 3. Sensibilidad ISO -->
-      <div class="sensor-control" id="ctrl-iso">
-        <div class="sensor-header">
-          <div>
-            <span class="sensor-name">Sensibilidad ISO</span>
-            <span class="sensor-val" id="val-iso">400</span>
-          </div>
-          <span class="hint" id="iso-hint">(Requiere Exp. Manual)</span>
-        </div>
-        <input type="range" id="range-iso" min="50" max="3200" step="25" value="400" disabled />
-      </div>
-
-      <!-- 4. Compensación de Exposición (EV) -->
-      <div class="sensor-control" id="ctrl-ev">
-        <div class="sensor-header">
-          <div>
-            <span class="sensor-name">Compensación EV</span>
-            <span class="sensor-val" id="val-exposureCompensation">0</span>
-          </div>
-          <span class="hint" id="ev-hint">(Solo en Exp. Auto)</span>
-        </div>
-        <input type="range" id="range-exposureCompensation" min="-2" max="2" step="0.1" value="0" />
-      </div>
-
-      <!-- 5. Distancia de Enfoque -->
-      <div class="sensor-control" id="ctrl-focus">
-        <div class="sensor-header">
-          <div>
-            <span class="sensor-name">Enfoque Manual</span>
-            <span class="sensor-val" id="val-focusDistance">0.25</span>
-          </div>
-          <label class="mode-toggle">
-            <input type="checkbox" id="auto-focusMode" checked />
-            <span>Auto</span>
-          </label>
-        </div>
-        <input type="range" id="range-focusDistance" min="0" max="1" step="0.01" value="0.25" disabled />
-      </div>
-
-    <!-- 6. Zoom -->
-    <div class="sensor-control" id="ctrl-zoom">
-        <div class="sensor-header">
-            <div>
-                <span class="sensor-name">Zoom Óptico/Digital</span>
-                <span class="sensor-val" id="val-zoom">1.0x</span>
-            </div>
-        </div>
-        <input type="range" id="range-zoom" min="1" max="5" step="0.1" value="1" />
-    </div>
-    
-    <!-- Linterna / Flash (torch) -->
-    <div class="sensor-control" id="ctrl-torch" data-cap="torch" style="display: none;">
-        <div class="sensor-header">
-            <span class="sensor-name">Linterna / Flash (Torch)</span>
-            <label class="mode-toggle">
-                <input type="checkbox" id="toggle-torch" />
-                <span>Encendida</span>
-            </label>
-        </div>
-    </div>
-    
-    <!-- Pan y Tilt (PTZ) -->
-    <div class="sensor-control" id="ctrl-pan" data-cap="pan" style="display: none;">
-        <div class="sensor-header">
-            <div>
-                <span class="sensor-name">Paneo Horizontal (Pan)</span>
-                <span class="sensor-val" id="val-pan">0</span>
-            </div>
-        </div>
-        <input type="range" id="range-pan" min="-180" max="180" step="1" value="0" />
-    </div>
-    
-    <div class="sensor-control" id="ctrl-tilt" data-cap="tilt" style="display: none;">
-        <div class="sensor-header">
-            <div>
-                <span class="sensor-name">Inclinación Vertical (Tilt)</span>
-                <span class="sensor-val" id="val-tilt">0</span>
-            </div>
-        </div>
-        <input type="range" id="range-tilt" min="-180" max="180" step="1" value="0" />
-    </div>
-    
-    <!-- Imagen: Brillo, Contraste, Saturación y Nitidez -->
-    <div class="sensor-control" id="ctrl-brightness" data-cap="brightness" style="display: none;">
-        <div class="sensor-header">
-            <div>
-                <span class="sensor-name">Brillo (Brightness)</span>
-                <span class="sensor-val" id="val-brightness">0</span>
-            </div>
-        </div>
-        <input type="range" id="range-brightness" min="-100" max="100" step="1" value="0" />
-    </div>
-    
-    <div class="sensor-control" id="ctrl-contrast" data-cap="contrast" style="display: none;">
-        <div class="sensor-header">
-            <div>
-                <span class="sensor-name">Contraste (Contrast)</span>
-                <span class="sensor-val" id="val-contrast">0</span>
-            </div>
-        </div>
-        <input type="range" id="range-contrast" min="-100" max="100" step="1" value="0" />
-    </div>
-    
-    <div class="sensor-control" id="ctrl-saturation" data-cap="saturation" style="display: none;">
-        <div class="sensor-header">
-            <div>
-                <span class="sensor-name">Saturación (Saturation)</span>
-                <span class="sensor-val" id="val-saturation">0</span>
-            </div>
-        </div>
-        <input type="range" id="range-saturation" min="-100" max="100" step="1" value="0" />
-    </div>
-    
-    <div class="sensor-control" id="ctrl-sharpness" data-cap="sharpness" style="display: none;">
-        <div class="sensor-header">
-            <div>
-                <span class="sensor-name">Nitidez (Sharpness)</span>
-                <span class="sensor-val" id="val-sharpness">0</span>
-            </div>
-        </div>
-        <input type="range" id="range-sharpness" min="-100" max="100" step="1" value="0" />
-    </div>
     </section>
 
-    <!-- Perfiles y Respaldo JSON -->
-    <section class="card">
-      <div class="card-title">Perfiles y Respaldo</div>
-      <div class="row">
-        <select id="profile-select">
-          <option value="default">Perfil Principal (Actual)</option>
-          <option value="dia">☀️ Escena Día / Estudio</option>
-          <option value="noche">🌙 Escena Noche / Baja Luz</option>
-          <option value="vertical">📱 Vertical Reels / TikTok</option>
-        </select>
-        <button id="btn-save-profile">💾 Guardar Perfil</button>
-      </div>
-      <div class="row">
-        <button id="btn-export-json">⬇️ Exportar JSON</button>
-        <button id="btn-import-json">⬆️ Importar JSON</button>
-        <input type="file" id="file-import" accept=".json" style="display: none;" />
-      </div>
-      <button class="danger" id="btn-reset-all" style="margin-top: 4px;">Restablecer Valores de Fábrica</button>
+    <section class="panel stats-panel">
+      <details id="stats-details">
+        <summary>Monitor de Métricas WebRTC</summary>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <span class="stat-label">Res. Efectiva</span>
+            <span id="stat-resolution" class="stat-value">—</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">FPS Reales</span>
+            <span id="stat-fps" class="stat-value">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Bitrate Est.</span>
+            <span id="stat-bitrate" class="stat-value">0 kbps</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Latencia (RTT)</span>
+            <span id="stat-rtt" class="stat-value">—</span>
+          </div>
+        </div>
+      </details>
     </section>
-  </div>
 
-  <!-- Pantalla Negra OLED para Evitar Calentamiento -->
-  <div id="oled-saver">
-    <p class="oled-title">🌙 Modo Ahorro OLED Activo</p>
-    <p class="oled-sub">La cámara sigue transmitiendo a OBS sin suspensión.</p>
-    <p class="oled-hint">Toca dos veces en cualquier lugar para volver</p>
-  </div>
+    <section class="panel format-panel">
+      <h2>Lente y Formato</h2>
+      <div class="grid-3">
+        <label class="field">
+          <span>Cámara / Sensor Físico</span>
+          <select id="camera-select"></select>
+        </label>
+        <label class="field">
+          <span>Resolución</span>
+          <select id="resolution-select"></select>
+        </label>
+        <label class="field">
+          <span>FPS</span>
+          <select id="fps-select"></select>
+        </label>
+      </div>
+    </section>
 
-  <div id="toast"></div>
+    <section class="panel sensor-panel">
+      <div class="panel-header-row">
+        <h2>Ajustes Manuales del Sensor</h2>
+        <button id="reapply-controls-btn" type="button">Reaplicar</button>
+      </div>
+      <div id="sensor-controls-container" class="sensor-controls-list"></div>
+    </section>
 
-  <!-- Lógica modular externa con defer -->
-  <script src="app.js" defer></script>
+    <section class="panel profiles-panel">
+      <h2>Perfiles Personalizados</h2>
+      <div class="grid-2">
+        <label class="field">
+          <span>Nombre del Perfil</span>
+          <input id="profile-name-input" type="text" placeholder="Ej. Escena Principal 1080p" />
+        </label>
+        <div class="button-row align-end">
+          <button id="save-profile-btn" type="button">Guardar Perfil</button>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <label class="field">
+          <span>Perfiles en Sesión</span>
+          <select id="profile-select"></select>
+        </label>
+        <div class="button-row align-end">
+          <button id="apply-profile-btn" type="button">Aplicar Perfil</button>
+        </div>
+      </div>
+
+      <div class="button-row">
+        <button id="export-profiles-btn" type="button">Exportar JSON</button>
+        <button id="import-profiles-btn" type="button">Importar JSON</button>
+        <input id="import-profiles-file" type="file" accept=".json,application/json" class="hidden" />
+        <button id="reset-native-btn" type="button">Restablecer Valores Nativos</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Capa de ahorro OLED (doble toque para salir) -->
+  <div id="oled-saver" class="oled-saver hidden" aria-hidden="true"></div>
+
+  <!-- Notificación flotante inferior -->
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 </body>
 </html>
