@@ -25,6 +25,8 @@ import {
   collectWebRtcStats,
 } from './webrtc.js';
 
+const STORAGE_KEY_PROFILES = 'obs_p2p_webcam_profiles';
+
 const KNOWN_CAPABILITY_LABELS = {
   whiteBalanceMode: 'Balance de blancos',
   colorTemperature: 'Temperatura de color',
@@ -120,6 +122,50 @@ function resolveModeKeyForCapability(key, capabilities = {}) {
     }
   }
   return null;
+}
+
+function saveProfilesToLocalStorage() {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(STORAGE_KEY_PROFILES, JSON.stringify(appState.profiles));
+  } catch (_) {}
+}
+
+function loadProfilesFromLocalStorage() {
+  if (typeof localStorage === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_PROFILES);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item) => item && typeof item === 'object')
+      .map((item, idx) => ({
+        name:
+          typeof item.name === 'string' && item.name.trim() !== ''
+            ? item.name.trim()
+            : `Perfil guardado ${idx + 1}`,
+        createdAt:
+          typeof item.createdAt === 'string' ? item.createdAt : new Date().toISOString(),
+        resolutionId:
+          typeof item.resolutionId === 'string' ? item.resolutionId : '720p-16x9',
+        fps: typeof item.fps === 'number' && Number.isFinite(item.fps) ? item.fps : 30,
+        bitrateKbps:
+          typeof item.bitrateKbps === 'number' && Number.isFinite(item.bitrateKbps)
+            ? item.bitrateKbps
+            : 4000,
+        sensorValues:
+          item.sensorValues && typeof item.sensorValues === 'object'
+            ? { ...item.sensorValues }
+            : {},
+        modeValues:
+          item.modeValues && typeof item.modeValues === 'object'
+            ? { ...item.modeValues }
+            : {},
+      }));
+  } catch (_) {
+    return [];
+  }
 }
 
 function setStatus(statusKey, labelText) {
@@ -313,6 +359,23 @@ function collectCurrentNumericSensorValues() {
   return values;
 }
 
+function collectCurrentModeValues() {
+  const modes = {};
+  if (!appState.capabilities || typeof appState.capabilities !== 'object') {
+    return modes;
+  }
+  for (const [key, cap] of Object.entries(appState.capabilities)) {
+    if (EXCLUDED_SENSOR_KEYS.has(key)) continue;
+    if (Array.isArray(cap) && cap.length > 0) {
+      const val = appState.settings ? appState.settings[key] : undefined;
+      if (typeof val === 'string' && val.trim() !== '') {
+        modes[key] = val;
+      }
+    }
+  }
+  return modes;
+}
+
 function refreshProfileSelectOptions(selectedName = '') {
   const select = getEl('profile-select');
   if (!select) return;
@@ -349,10 +412,6 @@ async function propagateTrackToActivePeers(newTrack) {
   return results.some((r) => r.status === 'fulfilled' && r.value === true);
 }
 
-function handleSensorControlCommit(key, value) {
-  return async () => {};
-}
-
 function renderActiveSensorControls() {
   renderSensorControls(
     appState.capabilities,
@@ -367,8 +426,12 @@ function renderActiveSensorControls() {
           const readBack = readTrackCapabilitiesAndSettings(appState.track);
           appState.settings = readBack.settings;
         }
+        renderSensorControls(appState.capabilities, appState.settings, null, null);
         updatePreviewFormatBadge();
       } catch (err) {
+        const readBack = readTrackCapabilitiesAndSettings(appState.track);
+        appState.settings = readBack.settings;
+        renderSensorControls(appState.capabilities, appState.settings, null, null);
         showToast(
           `El dispositivo rechazó "${formatCapabilityLabel(key)}": ${
             err && err.message ? err.message : 'restricción no soportada'
@@ -397,7 +460,10 @@ function renderActiveSensorControls() {
             appState.settings = synced.settings;
           }
         } else {
-          await queueTrackConstraintUpdate(appState.track, { [modeKey]: selectedModeValue }, 100);
+          const updated = await queueTrackConstraintUpdate(appState.track, { [modeKey]: selectedModeValue }, 100);
+          if (updated) {
+            appState.settings = updated;
+          }
         }
 
         const fresh = readTrackCapabilitiesAndSettings(appState.track);
@@ -434,7 +500,6 @@ async function initializeOrSwitchCamera(options = {}) {
   try {
     setStatus('init', 'Iniciando...');
 
-    // En dispositivos móviles, liberar el stream previo antes de abrir otro lente evita bloqueos de hardware
     if (isExplicitLensSwitch && previousStream) {
       stopCameraStream(previousStream);
       appState.stream = null;
@@ -472,7 +537,6 @@ async function initializeOrSwitchCamera(options = {}) {
 
     const devices = await refreshCameraDeviceList(appState.selectedDeviceId);
 
-    // Si en carga inicial no se fijó deviceId y el navegador abrió la frontal pese a haber trasera, cambiar a la trasera
     if (allowRearFallback && !isExplicitLensSwitch && !targetDeviceId) {
       const rearId = findPreferredBackCameraDeviceId(devices);
       const facing = appState.settings && appState.settings.facingMode;
@@ -514,8 +578,6 @@ async function initializeOrSwitchCamera(options = {}) {
       stopCameraStream(previousStream);
     }
 
-    // Si falló al cambiar de lente, conservar el ID anterior en el estado sin sobrescribirlo
-    // y no revertir silenciosamente el <select> si el usuario eligió otra opción
     if (!isExplicitLensSwitch) {
       appState.selectedDeviceId = previousDeviceId;
     }
@@ -870,6 +932,7 @@ function bindEmitterEvents() {
         fps: appState.fps,
         bitrateKbps: appState.bitrateKbps,
         sensorValues: collectCurrentNumericSensorValues(),
+        modeValues: collectCurrentModeValues(),
       });
       const existingIdx = appState.profiles.findIndex((p) => p.name === name);
       if (existingIdx >= 0) {
@@ -877,8 +940,9 @@ function bindEmitterEvents() {
       } else {
         appState.profiles.push(snapshot);
       }
+      saveProfilesToLocalStorage();
       refreshProfileSelectOptions(name);
-      showToast(`Perfil "${name}" guardado en sesión.`);
+      showToast(`Perfil "${name}" guardado.`);
     });
   }
 
@@ -927,10 +991,13 @@ function bindEmitterEvents() {
         appState.settings
       );
       const readBack = readTrackCapabilitiesAndSettings(appState.track);
-      appState.settings = readBack.settings;
+      appState.capabilities = readBack.capabilities || appState.capabilities;
+      appState.settings = readBack.settings || appState.settings;
       renderActiveSensorControls();
 
-      const appliedCount = Object.keys(result.appliedConstraints || {}).length;
+      const appliedCount =
+        Object.keys(result.appliedConstraints || {}).length +
+        Object.keys(result.appliedModes || {}).length;
       showToast(`Perfil "${profile.name}" aplicado (${appliedCount} parámetros).`);
     });
   }
@@ -939,7 +1006,7 @@ function bindEmitterEvents() {
   if (exportProfilesBtn) {
     exportProfilesBtn.addEventListener('click', () => {
       if (appState.profiles.length === 0) {
-        showToast('No hay perfiles en sesión para exportar.');
+        showToast('No hay perfiles para exportar.');
         return;
       }
       exportProfilesToJsonFile(appState.profiles);
@@ -976,6 +1043,7 @@ function bindEmitterEvents() {
             appState.profiles.push(prof);
           }
         }
+        saveProfilesToLocalStorage();
         refreshProfileSelectOptions(imported[imported.length - 1].name);
         showToast(`Importados ${imported.length} perfil(es) sin aplicar automáticamente.`);
       } catch (err) {
@@ -1124,6 +1192,8 @@ export async function initApp() {
   if (roomIdInput) roomIdInput.value = appState.roomId;
   if (roomPasswordInput) roomPasswordInput.value = appState.roomPassword;
 
+  appState.profiles = loadProfilesFromLocalStorage();
+
   populateFormatSelectors();
   refreshProfileSelectOptions();
   bindEmitterEvents();
@@ -1141,182 +1211,243 @@ export function renderSensorControls(
   const container = getEl('sensor-controls-container');
   if (!container) return;
 
-  container.innerHTML = '';
-
   const caps = capabilities && typeof capabilities === 'object' ? capabilities : {};
   const currSettings = settings && typeof settings === 'object' ? settings : {};
+
+  const existingRows = new Map();
+  Array.from(container.children).forEach((row) => {
+    if (row.dataset && row.dataset.capabilityKey) {
+      existingRows.set(row.dataset.capabilityKey, row);
+    }
+  });
+
+  const processedKeys = new Set();
 
   for (const [key, cap] of Object.entries(caps)) {
     if (EXCLUDED_SENSOR_KEYS.has(key)) continue;
     if (cap === undefined || cap === null) continue;
+    processedKeys.add(key);
 
     const isModeArray = Array.isArray(cap);
     const linkedModeKey = !isModeArray ? resolveModeKeyForCapability(key, caps) : null;
     const supportedModes = linkedModeKey && Array.isArray(caps[linkedModeKey]) ? caps[linkedModeKey] : [];
 
-    const row = document.createElement('div');
-    row.className = 'sensor-control-row';
+    let row = existingRows.get(key);
+    let rangeInput, numberInput, modeCheckbox, boolCheckbox, selectEl;
 
-    const labelEl = document.createElement('span');
-    labelEl.textContent = formatCapabilityLabel(key);
-    row.appendChild(labelEl);
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'sensor-control-row';
+      row.dataset.capabilityKey = key;
+
+      const labelEl = document.createElement('span');
+      labelEl.textContent = formatCapabilityLabel(key);
+      row.appendChild(labelEl);
+
+      if (linkedModeKey && supportedModes.length > 0) {
+        const modeWrapper = document.createElement('label');
+        modeWrapper.style.display = 'inline-flex';
+        modeWrapper.style.alignItems = 'center';
+        modeWrapper.style.gap = '6px';
+        modeWrapper.style.fontSize = '0.82rem';
+
+        modeCheckbox = document.createElement('input');
+        modeCheckbox.type = 'checkbox';
+        modeCheckbox.dataset.role = 'mode-checkbox';
+
+        const handleModeChange = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+
+          const currentChecked = modeCheckbox.checked;
+          const targetChecked = !currentChecked;
+
+          const hasManualOption = supportedModes.includes('manual');
+          const autoOption =
+            supportedModes.find((m) => m === 'continuous' || m === 'single-shot' || m === 'auto') ||
+            supportedModes[0];
+
+          const nextMode = targetChecked
+            ? autoOption
+            : hasManualOption
+            ? 'manual'
+            : supportedModes.find((m) => m !== autoOption) || autoOption;
+
+          modeCheckbox.checked = targetChecked;
+
+          const isInputsDisabled = targetChecked || (!hasManualOption && nextMode !== 'manual');
+          if (rangeInput) rangeInput.disabled = isInputsDisabled;
+          if (numberInput) numberInput.disabled = isInputsDisabled;
+          row.classList.toggle('sensor-control-row--disabled', isInputsDisabled);
+
+          if (typeof onModeToggle === 'function') {
+            onModeToggle(linkedModeKey, nextMode);
+          }
+        };
+
+        modeCheckbox.addEventListener('click', handleModeChange);
+
+        const modeText = document.createElement('span');
+        modeText.textContent = 'Auto';
+
+        modeWrapper.appendChild(modeCheckbox);
+        modeWrapper.appendChild(modeText);
+        row.appendChild(modeWrapper);
+      } else {
+        const spacer = document.createElement('span');
+        row.appendChild(spacer);
+      }
+
+      if (typeof cap === 'object' && !isModeArray && typeof cap.min === 'number' && typeof cap.max === 'number') {
+        const min = cap.min;
+        const max = cap.max;
+        const step = typeof cap.step === 'number' && cap.step > 0 ? cap.step : 1;
+
+        rangeInput = document.createElement('input');
+        rangeInput.type = 'range';
+        rangeInput.dataset.role = 'range-input';
+        rangeInput.min = String(min);
+        rangeInput.max = String(max);
+        rangeInput.step = String(step);
+
+        numberInput = document.createElement('input');
+        numberInput.type = 'number';
+        numberInput.dataset.role = 'number-input';
+        numberInput.min = String(min);
+        numberInput.max = String(max);
+        numberInput.step = String(step);
+
+        rangeInput.addEventListener('input', () => {
+          const numVal = Number(rangeInput.value);
+          numberInput.value = String(numVal);
+          if (typeof onControlCommit === 'function') {
+            onControlCommit(key, numVal, 'range');
+          }
+        });
+
+        numberInput.addEventListener('input', () => {
+          const partialNum = Number(numberInput.value);
+          if (
+            numberInput.value.trim() !== '' &&
+            Number.isFinite(partialNum) &&
+            partialNum >= min &&
+            partialNum <= max
+          ) {
+            rangeInput.value = String(partialNum);
+          }
+        });
+
+        const commitNumberInput = () => {
+          const rawNum = Number(numberInput.value);
+          const initialVal = Number(rangeInput.value) || min;
+          const targetRaw = Number.isFinite(rawNum) ? rawNum : initialVal;
+          const clamped = clampAndStepValue(targetRaw, min, max, step);
+          numberInput.value = String(clamped);
+          rangeInput.value = String(clamped);
+          if (typeof onControlCommit === 'function') {
+            onControlCommit(key, clamped, 'number');
+          }
+        };
+
+        numberInput.addEventListener('change', commitNumberInput);
+        numberInput.addEventListener('blur', commitNumberInput);
+        numberInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commitNumberInput();
+          }
+        });
+
+        row.appendChild(rangeInput);
+        row.appendChild(numberInput);
+      } else if (typeof cap === 'boolean') {
+        boolCheckbox = document.createElement('input');
+        boolCheckbox.type = 'checkbox';
+        boolCheckbox.dataset.role = 'bool-checkbox';
+        boolCheckbox.addEventListener('change', () => {
+          if (typeof onControlCommit === 'function') {
+            onControlCommit(key, boolCheckbox.checked, 'range');
+          }
+        });
+        row.appendChild(boolCheckbox);
+        row.appendChild(document.createElement('span'));
+      } else if (isModeArray) {
+        selectEl = document.createElement('select');
+        selectEl.dataset.role = 'select-input';
+        cap.forEach((optVal) => {
+          const opt = document.createElement('option');
+          opt.value = String(optVal);
+          opt.textContent = String(optVal);
+          selectEl.appendChild(opt);
+        });
+        selectEl.addEventListener('change', () => {
+          if (typeof onModeToggle === 'function') {
+            onModeToggle(key, selectEl.value);
+          } else if (typeof onControlCommit === 'function') {
+            onControlCommit(key, selectEl.value, 'number');
+          }
+        });
+        row.appendChild(selectEl);
+        row.appendChild(document.createElement('span'));
+      }
+
+      container.appendChild(row);
+    } else {
+      modeCheckbox = row.querySelector('[data-role="mode-checkbox"]');
+      rangeInput = row.querySelector('[data-role="range-input"]');
+      numberInput = row.querySelector('[data-role="number-input"]');
+      boolCheckbox = row.querySelector('[data-role="bool-checkbox"]');
+      selectEl = row.querySelector('[data-role="select-input"]');
+    }
 
     let isAutoActive = false;
-    let modeCheckbox = null;
-
     if (linkedModeKey && supportedModes.length > 0) {
       const currentModeVal = currSettings[linkedModeKey];
       const hasManualOption = supportedModes.includes('manual');
-      const autoOption =
-        supportedModes.find((m) => m === 'continuous' || m === 'single-shot' || m === 'auto') ||
-        supportedModes[0];
-
       isAutoActive =
         currentModeVal === 'continuous' ||
         currentModeVal === 'single-shot' ||
         currentModeVal === 'auto' ||
         (!hasManualOption && currentModeVal !== undefined);
 
-      const modeWrapper = document.createElement('label');
-      modeWrapper.style.display = 'inline-flex';
-      modeWrapper.style.alignItems = 'center';
-      modeWrapper.style.gap = '6px';
-      modeWrapper.style.fontSize = '0.82rem';
-
-      modeCheckbox = document.createElement('input');
-      modeCheckbox.type = 'checkbox';
-      modeCheckbox.checked = isAutoActive;
-
-      modeCheckbox.addEventListener('change', () => {
-        const checkedNow = Boolean(modeCheckbox.checked);
-        const nextMode = checkedNow
-          ? autoOption
-          : hasManualOption
-          ? 'manual'
-          : supportedModes.find((m) => m !== autoOption) || autoOption;
-
-        row.classList.toggle(
-          'sensor-control-row--disabled',
-          nextMode !== 'manual' && !hasManualOption
-        );
-        if (typeof onModeToggle === 'function') {
-          onModeToggle(linkedModeKey, nextMode);
-        }
-      });
-
-      const modeText = document.createElement('span');
-      modeText.textContent = 'Auto';
-
-      modeWrapper.appendChild(modeCheckbox);
-      modeWrapper.appendChild(modeText);
-      row.appendChild(modeWrapper);
-    } else {
-      const spacer = document.createElement('span');
-      row.appendChild(spacer);
+      if (modeCheckbox) {
+        modeCheckbox.checked = isAutoActive;
+      }
     }
 
     if (typeof cap === 'object' && !isModeArray && typeof cap.min === 'number' && typeof cap.max === 'number') {
       const min = cap.min;
       const max = cap.max;
       const step = typeof cap.step === 'number' && cap.step > 0 ? cap.step : 1;
-      const initialRaw =
-        typeof currSettings[key] === 'number' ? currSettings[key] : min;
+      const initialRaw = typeof currSettings[key] === 'number' ? currSettings[key] : min;
       const initialVal = clampAndStepValue(initialRaw, min, max, step);
 
-      const rangeInput = document.createElement('input');
-      rangeInput.type = 'range';
-      rangeInput.min = String(min);
-      rangeInput.max = String(max);
-      rangeInput.step = String(step);
-      rangeInput.value = String(initialVal);
+      if (rangeInput && document.activeElement !== rangeInput) {
+        rangeInput.value = String(initialVal);
+      }
+      if (numberInput && document.activeElement !== numberInput) {
+        numberInput.value = String(initialVal);
+      }
 
-      const numberInput = document.createElement('input');
-      numberInput.type = 'number';
-      numberInput.min = String(min);
-      numberInput.max = String(max);
-      numberInput.step = String(step);
-      numberInput.value = String(initialVal);
-
-      rangeInput.addEventListener('input', () => {
-        const numVal = Number(rangeInput.value);
-        numberInput.value = String(numVal);
-        if (typeof onControlCommit === 'function') {
-          onControlCommit(key, numVal, 'range');
-        }
-      });
-
-      numberInput.addEventListener('input', () => {
-        const partialNum = Number(numberInput.value);
-        if (
-          numberInput.value.trim() !== '' &&
-          Number.isFinite(partialNum) &&
-          partialNum >= min &&
-          partialNum <= max
-        ) {
-          rangeInput.value = String(partialNum);
-        }
-      });
-
-      const commitNumberInput = () => {
-        const rawNum = Number(numberInput.value);
-        const targetRaw = Number.isFinite(rawNum) ? rawNum : initialVal;
-        const clamped = clampAndStepValue(targetRaw, min, max, step);
-        numberInput.value = String(clamped);
-        rangeInput.value = String(clamped);
-        if (typeof onControlCommit === 'function') {
-          onControlCommit(key, clamped, 'number');
-        }
-      };
-
-      numberInput.addEventListener('change', commitNumberInput);
-      numberInput.addEventListener('blur', commitNumberInput);
-      numberInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          commitNumberInput();
-        }
-      });
-
-      row.appendChild(rangeInput);
-      row.appendChild(numberInput);
+      const isInputsDisabled = isAutoActive || (linkedModeKey && !supportedModes.includes('manual'));
+      if (rangeInput) rangeInput.disabled = isInputsDisabled;
+      if (numberInput) numberInput.disabled = isInputsDisabled;
+      row.classList.toggle('sensor-control-row--disabled', isInputsDisabled);
     } else if (typeof cap === 'boolean') {
-      const boolCheckbox = document.createElement('input');
-      boolCheckbox.type = 'checkbox';
-      boolCheckbox.checked = Boolean(currSettings[key]);
-      boolCheckbox.addEventListener('change', () => {
-        if (typeof onControlCommit === 'function') {
-          onControlCommit(key, boolCheckbox.checked, 'range');
-        }
-      });
-      row.appendChild(boolCheckbox);
-      row.appendChild(document.createElement('span'));
+      if (boolCheckbox) {
+        boolCheckbox.checked = Boolean(currSettings[key]);
+      }
     } else if (isModeArray) {
-      const selectEl = document.createElement('select');
-      cap.forEach((optVal) => {
-        const opt = document.createElement('option');
-        opt.value = String(optVal);
-        opt.textContent = String(optVal);
-        if (String(currSettings[key]) === String(optVal)) {
-          opt.selected = true;
-        }
-        selectEl.appendChild(opt);
-      });
-      selectEl.addEventListener('change', () => {
-        if (typeof onModeToggle === 'function') {
-          onModeToggle(key, selectEl.value);
-        } else if (typeof onControlCommit === 'function') {
-          onControlCommit(key, selectEl.value, 'number');
-        }
-      });
-      row.appendChild(selectEl);
-      row.appendChild(document.createElement('span'));
+      if (selectEl) {
+        selectEl.value = String(currSettings[key]);
+      }
     }
+  }
 
-    if (modeCheckbox && isAutoActive && !supportedModes.includes('manual')) {
-      row.classList.add('sensor-control-row--disabled');
+  for (const [key, row] of existingRows.entries()) {
+    if (!processedKeys.has(key)) {
+      row.remove();
     }
-
-    container.appendChild(row);
   }
 }
 
@@ -1336,17 +1467,59 @@ export function buildCurrentProfileSnapshot(profileName, state = {}) {
       typeof s.bitrateKbps === 'number' && Number.isFinite(s.bitrateKbps) ? s.bitrateKbps : 4000,
     sensorValues:
       s.sensorValues && typeof s.sensorValues === 'object' ? { ...s.sensorValues } : {},
+    modeValues:
+      s.modeValues && typeof s.modeValues === 'object' ? { ...s.modeValues } : {},
   };
 }
 
 export async function applyProfileToActiveCamera(profile, capabilities, settings) {
   const appliedConstraints = {};
+  const appliedModes = {};
   const skippedKeys = [];
 
   const prof = profile && typeof profile === 'object' ? profile : {};
   const sensorValues =
     prof.sensorValues && typeof prof.sensorValues === 'object' ? prof.sensorValues : {};
+  const modeValues =
+    prof.modeValues && typeof prof.modeValues === 'object' ? prof.modeValues : {};
   const caps = capabilities && typeof capabilities === 'object' ? capabilities : {};
+
+  if (appState.track) {
+    for (const [key, rawVal] of Object.entries(sensorValues)) {
+      const linkedModeKey = resolveModeKeyForCapability(key, caps);
+      if (linkedModeKey && Array.isArray(caps[linkedModeKey])) {
+        const supported = caps[linkedModeKey];
+        const savedMode = modeValues[linkedModeKey];
+        const targetMode = savedMode && supported.includes(savedMode)
+          ? savedMode
+          : supported.includes('manual')
+          ? 'manual'
+          : supported[0];
+
+        if (targetMode) {
+          try {
+            if (targetMode === 'manual') {
+              await syncAutoToManualConstraint(appState.track, key, linkedModeKey, rawVal);
+            } else {
+              await queueTrackConstraintUpdate(appState.track, { [linkedModeKey]: targetMode }, 100);
+            }
+            appliedModes[linkedModeKey] = targetMode;
+          } catch (_) {}
+        }
+      }
+    }
+
+    for (const [modeKey, rawModeVal] of Object.entries(modeValues)) {
+      if (appliedModes[modeKey]) continue;
+      const supported = caps[modeKey];
+      if (Array.isArray(supported) && supported.includes(rawModeVal)) {
+        try {
+          await queueTrackConstraintUpdate(appState.track, { [modeKey]: rawModeVal }, 100);
+          appliedModes[modeKey] = rawModeVal;
+        } catch (_) {}
+      }
+    }
+  }
 
   for (const [key, rawVal] of Object.entries(sensorValues)) {
     const cap = caps[key];
@@ -1371,6 +1544,7 @@ export async function applyProfileToActiveCamera(profile, capabilities, settings
 
   return {
     appliedConstraints,
+    appliedModes,
     skippedKeys,
   };
 }
@@ -1439,6 +1613,10 @@ export function importProfilesFromJsonFile(file) {
             sensorValues:
               item.sensorValues && typeof item.sensorValues === 'object'
                 ? { ...item.sensorValues }
+                : {},
+            modeValues:
+              item.modeValues && typeof item.modeValues === 'object'
+                ? { ...item.modeValues }
                 : {},
           }));
 

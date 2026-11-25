@@ -295,7 +295,9 @@ export async function syncAutoToManualConstraint(
     } catch (_) {
       try {
         await track.applyConstraints(modePatch);
-      } catch (_) {}
+      } catch (err) {
+        throw err;
+      }
     }
   }
 
@@ -320,7 +322,9 @@ export async function syncAutoToManualConstraint(
       } catch (_) {
         try {
           await track.applyConstraints(targetPatch);
-        } catch (_) {}
+        } catch (err) {
+          throw err;
+        }
       }
       ({ settings } = readTrackCapabilitiesAndSettings(track));
       syncedValue =
