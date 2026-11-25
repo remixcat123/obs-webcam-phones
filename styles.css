@@ -1,19 +1,19 @@
-/* styles.css — Estilos para Webcam P2P Persistente para OBS Studio (v2.1) */
-
 :root {
-  --bg-body: #0f1115;
+  --bg-page: #0f1115;
   --bg-panel: #171a21;
-  --bg-input: #1f2430;
-  --bg-hover: #272d3b;
-  --border-color: #2c3342;
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
+  --bg-control: #1f242e;
+  --bg-control-hover: #282e3b;
+  --border-subtle: #2b313e;
+  --text-primary: #eef2f7;
+  --text-secondary: #9aa4b2;
   --accent: #3b82f6;
   --accent-hover: #2563eb;
   --danger: #ef4444;
   --success: #22c55e;
-  --warning: #eab308;
-  --radius: 10px;
+  --warning: #f59e0b;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
 }
 
 *,
@@ -28,20 +28,17 @@ body {
   padding: 0;
   min-height: 100%;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background-color: var(--bg-body);
+  background-color: var(--bg-page);
   color: var(--text-primary);
-  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Utilidad transversal de ocultamiento */
+/* Utilidad base de visibilidad */
 .hidden {
   display: none !important;
 }
 
-/* ==========================================================================
-   Vista Receptora (#obs-app — OBS Browser Source)
-   ========================================================================== */
-
+/* Vista Receptor para OBS Studio */
 #obs-app {
   position: fixed;
   inset: 0;
@@ -59,90 +56,79 @@ body {
   background: transparent;
 }
 
-/* Modal de autenticación en receptor */
-.modal-backdrop,
-.modal-backdrop--open {
+/* Modal de autenticación en Receptor */
+.modal-backdrop {
   position: fixed;
   inset: 0;
-  width: 100vw;
-  height: 100vh;
-  background: rgba(10, 12, 16, 0.82);
+  z-index: 900;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1rem;
-  z-index: 500;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(4px);
+}
+
+.modal-backdrop.hidden {
+  display: none !important;
+}
+
+.modal-backdrop--open {
+  display: flex;
 }
 
 .modal-card {
   width: 100%;
-  max-width: 380px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius);
-  padding: 1.25rem;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+  max-width: 360px;
+  padding: 20px;
+  border-radius: var(--radius-lg);
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .modal-card h2 {
-  margin: 0 0 0.4rem;
+  margin: 0;
   font-size: 1.15rem;
 }
 
-.modal-card p {
-  margin: 0 0 0.9rem;
-  color: var(--text-secondary);
+.modal-subtitle {
+  margin: 0;
   font-size: 0.9rem;
-}
-
-.modal-card form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.modal-card input[type="password"] {
-  width: 100%;
-  padding: 0.65rem 0.75rem;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-input);
-  color: var(--text-primary);
-  font-size: 0.95rem;
+  color: var(--text-secondary);
 }
 
 .auth-error {
   margin: 0;
-  color: #fca5a5 !important;
-  font-size: 0.85rem !important;
+  font-size: 0.85rem;
+  color: var(--danger);
 }
 
-/* ==========================================================================
-   Vista Emisora (#emitter-app)
-   ========================================================================== */
-
+/* Vista Emisor */
 #emitter-app {
   max-width: 960px;
   margin: 0 auto;
-  padding: 1rem 1rem 4.5rem;
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 16px;
 }
 
-.emitter-header {
+.app-header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.85rem 1rem;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius);
+  gap: 12px;
+  padding: 14px 18px;
+  border-radius: var(--radius-lg);
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
 }
 
-.emitter-header h1 {
+.app-header h1 {
   margin: 0;
   font-size: 1.2rem;
   font-weight: 600;
@@ -151,22 +137,21 @@ body {
 .status-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.35rem 0.7rem;
+  gap: 8px;
+  padding: 6px 12px;
   border-radius: 999px;
-  background: var(--bg-input);
-  border: 1px solid var(--border-color);
-  font-size: 0.85rem;
+  background-color: var(--bg-control);
+  border: 1px solid var(--border-subtle);
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
-/* Punto de estado con modificadores de Fase 1 */
 .status-dot {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  display: inline-block;
+  background-color: var(--text-secondary);
   flex-shrink: 0;
-  background-color: var(--warning);
 }
 
 .status-dot--init {
@@ -185,46 +170,42 @@ body {
   background-color: var(--danger);
 }
 
-/* Paneles generales */
+/* Paneles */
 .panel {
-  background: var(--bg-panel);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius);
-  padding: 1rem;
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
 .panel h2 {
-  margin: 0 0 0.85rem;
+  margin: 0;
   font-size: 1rem;
   font-weight: 600;
+  color: var(--text-primary);
 }
 
-.panel-header-row {
+.panel-header-inline {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
-  margin-bottom: 0.85rem;
+  gap: 12px;
 }
 
-.panel-header-row h2 {
-  margin: 0;
-}
-
-/* Contenedor adaptable de vista previa (16:9 y 9:16) */
+/* Vista previa adaptable */
 .preview-panel {
-  display: flex;
-  justify-content: center;
   align-items: center;
-  background: #0b0d11;
 }
 
 .preview-container {
   position: relative;
   width: 100%;
-  max-height: 65vh;
-  background: #050608;
-  border-radius: 8px;
+  background-color: #090b0e;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -234,13 +215,14 @@ body {
 .preview-container--landscape,
 .preview-container[data-orientation="16:9"] {
   aspect-ratio: 16 / 9;
-  max-width: 100%;
+  max-height: 520px;
 }
 
 .preview-container--portrait,
 .preview-container[data-orientation="9:16"] {
   aspect-ratio: 9 / 16;
-  max-width: 380px;
+  max-width: 340px;
+  max-height: 560px;
 }
 
 #local-video {
@@ -250,157 +232,148 @@ body {
   object-fit: cover;
 }
 
-/* Ocultar renderizado local en Modo OLED sin detener captura/transmisión */
 .video-oled-hidden {
-  visibility: hidden;
+  visibility: hidden !important;
 }
 
 .preview-overlays {
   position: absolute;
-  top: 0.6rem;
-  left: 0.6rem;
-  right: 0.6rem;
+  top: 10px;
+  left: 10px;
+  right: 10px;
   display: flex;
-  flex-wrap: wrap;
   justify-content: space-between;
-  gap: 0.4rem;
+  align-items: center;
+  gap: 8px;
   pointer-events: none;
 }
 
-.badge {
+.overlay-badge {
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
   background: rgba(15, 17, 21, 0.78);
-  color: var(--text-primary);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 6px;
-  padding: 0.22rem 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   font-size: 0.78rem;
-  backdrop-filter: blur(4px);
+  font-variant-numeric: tabular-nums;
 }
 
-/* Grillas y campos de formulario */
+/* Formularios, grillas y botones */
 .grid-2 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 0.85rem;
-  margin-bottom: 0.85rem;
+  gap: 12px;
 }
 
 .grid-3 {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 6px;
+}
+
+.field label,
+.modal-card label {
   font-size: 0.85rem;
   color: var(--text-secondary);
 }
 
-.field input[type="text"],
-.field input[type="password"],
-.field input[type="number"],
-.field select {
+input[type="text"],
+input[type="password"],
+input[type="number"],
+select {
   width: 100%;
-  padding: 0.55rem 0.7rem;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-input);
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-control);
   color: var(--text-primary);
-  font-size: 0.9rem;
+  font-size: 0.92rem;
 }
 
-.field input:focus,
-.field select:focus {
+input:focus,
+select:focus {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 
-/* Botones */
-.button-row {
+.actions-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.6rem;
-}
-
-.button-row.align-end {
-  align-items: flex-end;
+  gap: 10px;
 }
 
 button {
-  padding: 0.55rem 0.9rem;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-input);
+  padding: 9px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-control);
   color: var(--text-primary);
   font-size: 0.88rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 button:hover:not(:disabled) {
-  background: var(--bg-hover);
-  border-color: #3d4659;
+  background-color: var(--bg-control-hover);
 }
 
 button:disabled {
-  opacity: 0.45;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
-#copy-obs-url-btn,
-#obs-auth-submit,
-#save-profile-btn,
-#apply-profile-btn {
-  background: var(--accent);
+button[type="submit"],
+#copy-obs-url-btn {
+  background-color: var(--accent);
   border-color: var(--accent);
   color: #ffffff;
 }
 
-#copy-obs-url-btn:hover:not(:disabled),
-#obs-auth-submit:hover:not(:disabled),
-#save-profile-btn:hover:not(:disabled),
-#apply-profile-btn:hover:not(:disabled) {
-  background: var(--accent-hover);
+button[type="submit"]:hover:not(:disabled),
+#copy-obs-url-btn:hover:not(:disabled) {
+  background-color: var(--accent-hover);
   border-color: var(--accent-hover);
 }
 
 .fallback-box {
-  margin-top: 0.85rem;
-  padding-top: 0.75rem;
-  border-top: 1px dashed var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-control);
+  border: 1px dashed var(--border-subtle);
 }
 
-/* Monitor de métricas WebRTC (#stats-details) */
+/* Monitor de métricas WebRTC */
 #stats-details summary {
   cursor: pointer;
   font-weight: 600;
   font-size: 0.95rem;
-  list-style: none;
   user-select: none;
 }
 
-#stats-details[open] summary {
-  margin-bottom: 0.85rem;
-}
-
 .stats-grid {
+  margin-top: 12px;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 0.75rem;
+  gap: 10px;
 }
 
 .stat-item {
-  background: var(--bg-input);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 0.65rem 0.75rem;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-control);
+  border: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 4px;
 }
 
 .stat-label {
@@ -414,22 +387,22 @@ button:disabled {
   font-variant-numeric: tabular-nums;
 }
 
-/* Filas dinámicas de controles del sensor */
+/* Controles dinámicos del sensor */
 .sensor-controls-list {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 10px;
 }
 
 .sensor-control-row {
   display: grid;
-  grid-template-columns: minmax(140px, 1.2fr) auto minmax(140px, 2fr) 96px;
+  grid-template-columns: minmax(140px, 1fr) auto minmax(140px, 2fr) 92px;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.65rem 0.75rem;
-  border-radius: 8px;
-  background: var(--bg-input);
-  border: 1px solid var(--border-color);
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-control);
+  border: 1px solid var(--border-subtle);
 }
 
 .sensor-control-row--disabled {
@@ -444,66 +417,55 @@ button:disabled {
 }
 
 .sensor-control-row input[type="number"] {
-  width: 100%;
-  padding: 0.4rem 0.5rem;
-  border-radius: 6px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-panel);
-  color: var(--text-primary);
   font-variant-numeric: tabular-nums;
+  padding: 6px 8px;
 }
 
-/* Pantalla negra pura para ahorro OLED (#oled-saver) */
-.oled-saver,
-.oled-saver--active {
+@media (max-width: 640px) {
+  .sensor-control-row {
+    grid-template-columns: 1fr auto;
+  }
+}
+
+/* Modo Ahorro OLED */
+.oled-saver {
+  display: none;
   position: fixed;
   inset: 0;
   width: 100vw;
   height: 100vh;
   background-color: #000000;
-  color: #000000;
   z-index: 9999;
   cursor: pointer;
-  touch-action: manipulation;
   user-select: none;
 }
 
-/* Notificación flotante inferior (#toast) */
+.oled-saver--active {
+  display: block;
+}
+
+/* Notificación flotante Toast */
 .toast {
   position: fixed;
+  bottom: 20px;
   left: 50%;
-  bottom: 1.25rem;
   transform: translate(-50%, 16px);
-  max-width: min(92vw, 460px);
-  padding: 0.65rem 1rem;
-  border-radius: 8px;
-  background: #1e293b;
-  color: #f8fafc;
-  border: 1px solid #334155;
+  z-index: 10000;
+  max-width: calc(100vw - 32px);
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg-panel);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
   font-size: 0.88rem;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease, transform 0.2s ease;
-  z-index: 10000;
 }
 
 .toast--visible {
   opacity: 1;
   transform: translate(-50%, 0);
-}
-
-/* Adaptación móvil */
-@media (max-width: 640px) {
-  .sensor-control-row {
-    grid-template-columns: 1fr auto;
-  }
-
-  .sensor-control-row input[type="range"] {
-    grid-column: 1 / -1;
-  }
-
-  .sensor-control-row input[type="number"] {
-    grid-column: 1 / -1;
-  }
+  pointer-events: auto;
 }

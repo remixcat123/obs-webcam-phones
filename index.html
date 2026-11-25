@@ -5,31 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Webcam P2P Persistente para OBS Studio (v2.1)</title>
   <link rel="stylesheet" href="./styles.css" />
-  <script defer src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-  <script type="module" src="./js/main.js"></script>
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" defer></script>
+  <script type="module" src="./main.js"></script>
 </head>
 <body>
-  <!-- Vista Receptora (OBS Browser Source) -->
+  <!-- Vista Receptor (OBS Browser Source) -->
   <main id="obs-app" class="hidden">
     <video id="obs-video" autoplay playsinline></video>
 
     <div id="obs-auth-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="obs-auth-title">
-      <div class="modal-card">
-        <h2 id="obs-auth-title">Autenticación de Sala</h2>
-        <p>Ingresa la clave de acceso configurada en el dispositivo emisor.</p>
-        <form id="obs-auth-form">
-          <input id="obs-auth-input" type="password" autocomplete="current-password" placeholder="Contraseña de sala" />
-          <p id="obs-auth-error" class="auth-error hidden" role="alert"></p>
-          <button id="obs-auth-submit" type="submit">Conectar</button>
-        </form>
-      </div>
+      <form id="obs-auth-form" class="modal-card">
+        <h2 id="obs-auth-title">Contraseña de Sala</h2>
+        <p class="modal-subtitle">Introduce la clave configurada en el emisor para conectar.</p>
+        <label for="obs-auth-input">Clave de acceso</label>
+        <input id="obs-auth-input" type="password" autocomplete="off" placeholder="Clave de la sala" />
+        <p id="obs-auth-error" class="auth-error hidden" role="alert"></p>
+        <button id="obs-auth-submit" type="submit">Conectar</button>
+      </form>
     </div>
   </main>
 
-  <!-- Vista Emisora -->
+  <!-- Vista Emisor -->
   <main id="emitter-app" class="hidden">
-    <header class="emitter-header">
-      <h1>Webcam P2P OBS (v2.1)</h1>
+    <header class="app-header">
+      <h1>Webcam P2P Persistente · OBS v2.1</h1>
       <div class="status-badge">
         <span id="status-indicator" class="status-dot status-dot--init" aria-hidden="true"></span>
         <span id="status-text">Iniciando...</span>
@@ -40,8 +39,8 @@
       <div id="preview-container" class="preview-container preview-container--landscape" data-orientation="16:9">
         <video id="local-video" muted playsinline></video>
         <div class="preview-overlays">
-          <span id="preview-format-badge" class="badge">— · 0 FPS</span>
-          <span id="wakelock-badge" class="badge">WakeLock: Inactivo</span>
+          <span id="preview-format-badge" class="overlay-badge">--</span>
+          <span id="wakelock-badge" class="overlay-badge">WakeLock: --</span>
         </div>
       </div>
     </section>
@@ -49,31 +48,29 @@
     <section class="panel connection-panel">
       <h2>Conexión y Sala</h2>
       <div class="grid-2">
-        <label class="field">
-          <span>ID de Sala Fijo</span>
+        <div class="field">
+          <label for="room-id-input">ID de Sala Fijo</label>
           <input id="room-id-input" type="text" autocomplete="off" spellcheck="false" />
-        </label>
-        <label class="field">
-          <span>Clave Opcional</span>
-          <input id="room-password-input" type="password" autocomplete="new-password" placeholder="Sin clave" />
-        </label>
-        <label class="field">
-          <span>Bitrate Máx. WebRTC</span>
+        </div>
+        <div class="field">
+          <label for="room-password-input">Clave Opcional</label>
+          <input id="room-password-input" type="password" autocomplete="off" placeholder="Sin clave" />
+        </div>
+        <div class="field">
+          <label for="bitrate-select">Bitrate Máx. WebRTC</label>
           <select id="bitrate-select"></select>
-        </label>
+        </div>
       </div>
 
-      <div class="button-row">
+      <div class="actions-row">
         <button id="copy-obs-url-btn" type="button">Copiar URL para OBS</button>
         <button id="reset-room-btn" type="button">Reiniciar Sala</button>
         <button id="oled-mode-btn" type="button">Modo OLED</button>
       </div>
 
       <div id="obs-url-fallback-box" class="fallback-box hidden">
-        <label class="field">
-          <span>URL para OBS (copiar manualmente)</span>
-          <input id="obs-url-fallback-input" type="text" readonly />
-        </label>
+        <label for="obs-url-fallback-input">Copia manualmente la URL para OBS:</label>
+        <input id="obs-url-fallback-input" type="text" readonly />
       </div>
     </section>
 
@@ -83,19 +80,19 @@
         <div class="stats-grid">
           <div class="stat-item">
             <span class="stat-label">Res. Efectiva</span>
-            <span id="stat-resolution" class="stat-value">—</span>
+            <span id="stat-resolution" class="stat-value">--</span>
           </div>
           <div class="stat-item">
             <span class="stat-label">FPS Reales</span>
-            <span id="stat-fps" class="stat-value">0</span>
+            <span id="stat-fps" class="stat-value">--</span>
           </div>
           <div class="stat-item">
             <span class="stat-label">Bitrate Est.</span>
-            <span id="stat-bitrate" class="stat-value">0 kbps</span>
+            <span id="stat-bitrate" class="stat-value">--</span>
           </div>
           <div class="stat-item">
             <span class="stat-label">Latencia (RTT)</span>
-            <span id="stat-rtt" class="stat-value">—</span>
+            <span id="stat-rtt" class="stat-value">--</span>
           </div>
         </div>
       </details>
@@ -104,23 +101,23 @@
     <section class="panel format-panel">
       <h2>Lente y Formato</h2>
       <div class="grid-3">
-        <label class="field">
-          <span>Cámara / Sensor Físico</span>
+        <div class="field">
+          <label for="camera-select">Cámara / Sensor Físico</label>
           <select id="camera-select"></select>
-        </label>
-        <label class="field">
-          <span>Resolución</span>
+        </div>
+        <div class="field">
+          <label for="resolution-select">Resolución</label>
           <select id="resolution-select"></select>
-        </label>
-        <label class="field">
-          <span>FPS</span>
+        </div>
+        <div class="field">
+          <label for="fps-select">FPS</label>
           <select id="fps-select"></select>
-        </label>
+        </div>
       </div>
     </section>
 
     <section class="panel sensor-panel">
-      <div class="panel-header-row">
+      <div class="panel-header-inline">
         <h2>Ajustes Manuales del Sensor</h2>
         <button id="reapply-controls-btn" type="button">Reaplicar</button>
       </div>
@@ -130,38 +127,29 @@
     <section class="panel profiles-panel">
       <h2>Perfiles Personalizados</h2>
       <div class="grid-2">
-        <label class="field">
-          <span>Nombre del Perfil</span>
-          <input id="profile-name-input" type="text" placeholder="Ej. Escena Principal 1080p" />
-        </label>
-        <div class="button-row align-end">
-          <button id="save-profile-btn" type="button">Guardar Perfil</button>
+        <div class="field">
+          <label for="profile-name-input">Nombre del Perfil</label>
+          <input id="profile-name-input" type="text" placeholder="Ej. Estudio Día" />
         </div>
-      </div>
-
-      <div class="grid-2">
-        <label class="field">
-          <span>Perfiles en Sesión</span>
+        <div class="field">
+          <label for="profile-select">Perfiles en Sesión</label>
           <select id="profile-select"></select>
-        </label>
-        <div class="button-row align-end">
-          <button id="apply-profile-btn" type="button">Aplicar Perfil</button>
         </div>
       </div>
 
-      <div class="button-row">
+      <div class="actions-row">
+        <button id="save-profile-btn" type="button">Guardar Perfil</button>
+        <button id="apply-profile-btn" type="button">Aplicar Perfil</button>
         <button id="export-profiles-btn" type="button">Exportar JSON</button>
         <button id="import-profiles-btn" type="button">Importar JSON</button>
-        <input id="import-profiles-file" type="file" accept=".json,application/json" class="hidden" />
         <button id="reset-native-btn" type="button">Restablecer Valores Nativos</button>
+        <input id="import-profiles-file" type="file" accept=".json,application/json" class="hidden" />
       </div>
     </section>
   </main>
 
-  <!-- Capa de ahorro OLED (doble toque para salir) -->
-  <div id="oled-saver" class="oled-saver hidden" aria-hidden="true"></div>
-
-  <!-- Notificación flotante inferior -->
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <!-- Capas auxiliares -->
+  <div id="oled-saver" class="oled-saver" aria-hidden="true"></div>
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 </body>
 </html>
