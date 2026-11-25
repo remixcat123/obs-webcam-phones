@@ -9,5 +9,6 @@ Aplicación web estática (pensada para desplegarse en **GitHub Pages** bajo HTT
 - **Perfiles persistentes y JSON:** Guardado de perfiles con persistencia en `localStorage` y exportación/importación manual en formato `.json` con ajuste de rangos (`clamping`) al sensor activo.
 - **Ahorro energético y métricas:** Bloqueo de pantalla (`WakeLock`), modo ahorro OLED a doble toque ocultando el preview local y monitor de métricas WebRTC bajo demanda.
 
-## Créditos y desarrollo
-Proyecto desarrollado con arquitectura modular y especificación de requisitos definida por el autor, con asistencia iterativa de **Gemini (IA)** para el diseño de contratos, depuración y refinamiento del código.
+## Créditos, notas de campo y estado real
+- **Arquitectura y visión:** Definidas por el autor, con asistencia iterativa de **Gemini (IA)** en el diseño de contratos, depuración paso a paso y ajuste de la arquitectura modular.
+- **Estado actual ("funciona, pero..."):** Como buen proyecto en evolución que toca WebRTC, redes locales y drivers de cámara distintos según el teléfono, **tiene algunos fallos mínimos y comportamientos rebeldes bajo el capó**... aunque, si no los buscas, **creo que casi ni se notan**. Las *issues* y *PRs* para pulir esos detalles son más que bienvenidos.
