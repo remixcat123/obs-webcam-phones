@@ -288,9 +288,17 @@ async function initializeOrSwitchCamera(options = {}) {
   const preset = getSelectedResolutionPreset();
   const isExplicitLensSwitch =
     typeof preferredDeviceId === 'string' && preferredDeviceId.trim() !== '';
-  const targetDeviceId = isExplicitLensSwitch
+  let targetDeviceId = isExplicitLensSwitch
     ? preferredDeviceId.trim()
     : appState.selectedDeviceId || undefined;
+
+  // Si aún no hay cámara elegida, obtener la lista y forzar la cámara 0 (índice 0)
+  if (!targetDeviceId) {
+    const availableCameras = await listVideoInputs();
+    if (availableCameras.length > 0 && availableCameras[0].deviceId) {
+      targetDeviceId = availableCameras[0].deviceId;
+    }
+  }
 
   const previousStream = appState.stream;
   const previousDeviceId = appState.selectedDeviceId;
