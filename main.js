@@ -25,26 +25,42 @@ import {
   collectWebRtcStats,
 } from './webrtc.js';
 
-const SENSOR_CAPABILITY_SPECS = [
-  { key: 'whiteBalanceMode', label: 'Balance de blancos', modeKey: null },
-  { key: 'colorTemperature', label: 'Temperatura de color', modeKey: 'whiteBalanceMode' },
-  { key: 'exposureMode', label: 'Modo de exposición', modeKey: null },
-  { key: 'exposureTime', label: 'Tiempo de exposición', modeKey: 'exposureMode' },
-  { key: 'iso', label: 'ISO', modeKey: 'exposureMode' },
-  { key: 'exposureCompensation', label: 'Compensación EV', modeKey: null },
-  { key: 'focusMode', label: 'Modo de enfoque', modeKey: null },
-  { key: 'focusDistance', label: 'Distancia de enfoque', modeKey: 'focusMode' },
-  { key: 'zoom', label: 'Zoom', modeKey: null },
-  { key: 'torch', label: 'Linterna', modeKey: null },
-  { key: 'pan', label: 'Pan', modeKey: null },
-  { key: 'tilt', label: 'Tilt', modeKey: null },
-  { key: 'brightness', label: 'Brillo', modeKey: null },
-  { key: 'contrast', label: 'Contraste', modeKey: null },
-  { key: 'saturation', label: 'Saturación', modeKey: null },
-  { key: 'sharpness', label: 'Nitidez', modeKey: null },
-];
+const KNOWN_CAPABILITY_LABELS = {
+  whiteBalanceMode: 'Balance de blancos',
+  colorTemperature: 'Temperatura de color',
+  exposureMode: 'Modo de exposición',
+  exposureTime: 'Tiempo de exposición',
+  iso: 'ISO',
+  exposureCompensation: 'Compensación EV',
+  focusMode: 'Modo de enfoque',
+  focusDistance: 'Distancia de enfoque',
+  zoom: 'Zoom',
+  torch: 'Linterna',
+  pan: 'Pan',
+  tilt: 'Tilt',
+  brightness: 'Brillo',
+  contrast: 'Contraste',
+  saturation: 'Saturación',
+  sharpness: 'Nitidez',
+};
 
-const MODE_CAPABILITY_KEYS = new Set(['whiteBalanceMode', 'exposureMode', 'focusMode']);
+const KNOWN_MODE_LINKS = {
+  colorTemperature: 'whiteBalanceMode',
+  exposureTime: 'exposureMode',
+  iso: 'exposureMode',
+  focusDistance: 'focusMode',
+};
+
+const EXCLUDED_SENSOR_KEYS = new Set([
+  'deviceId',
+  'groupId',
+  'width',
+  'height',
+  'frameRate',
+  'aspectRatio',
+  'facingMode',
+  'resizeMode',
+]);
 
 const appState = {
   mode: 'emitter',
@@ -71,6 +87,39 @@ const appState = {
 
 function getEl(id) {
   return document.getElementById(id);
+}
+
+function formatCapabilityLabel(key) {
+  if (Object.prototype.hasOwnProperty.call(KNOWN_CAPABILITY_LABELS, key)) {
+    return KNOWN_CAPABILITY_LABELS[key];
+  }
+  const spaced = String(key || '')
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/[_-]+/g, ' ')
+    .trim();
+  return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : key;
+}
+
+function resolveModeKeyForCapability(key, capabilities = {}) {
+  if (Object.prototype.hasOwnProperty.call(KNOWN_MODE_LINKS, key)) {
+    const linked = KNOWN_MODE_LINKS[key];
+    if (Array.isArray(capabilities[linked]) && capabilities[linked].length > 0) {
+      return linked;
+    }
+  }
+  if (key.endsWith('Distance') || key.endsWith('Temperature') || key === 'iso' || key === 'exposureTime') {
+    const prefix = key.startsWith('whiteBalance')
+      ? 'whiteBalanceMode'
+      : key.startsWith('exposure') || key === 'iso'
+      ? 'exposureMode'
+      : key.startsWith('focus')
+      ? 'focusMode'
+      : null;
+    if (prefix && Array.isArray(capabilities[prefix]) && capabilities[prefix].length > 0) {
+      return prefix;
+    }
+  }
+  return null;
 }
 
 function setStatus(statusKey, labelText) {
@@ -191,6 +240,16 @@ function populateFormatSelectors() {
   }
 }
 
+function findPreferredBackCameraDeviceId(devices) {
+  if (!Array.isArray(devices) || devices.length <= 1) return '';
+  const rearPattern = /(back|rear|environment|trasera|posterior|main|wide)/i;
+  const frontPattern = /(front|user|frontal|selfie)/i;
+  const rearMatch = devices.find((d) => d.deviceId && rearPattern.test(d.label || ''));
+  if (rearMatch) return rearMatch.deviceId;
+  const nonFront = devices.find((d) => d.deviceId && !frontPattern.test(d.label || ''));
+  return nonFront ? nonFront.deviceId : '';
+}
+
 async function refreshCameraDeviceList(preferredDeviceId = '') {
   const cameraSelect = getEl('camera-select');
   const devices = await listVideoInputs();
@@ -239,13 +298,16 @@ function getSelectedResolutionPreset() {
 
 function collectCurrentNumericSensorValues() {
   const values = {};
-  for (const spec of SENSOR_CAPABILITY_SPECS) {
-    if (MODE_CAPABILITY_KEYS.has(spec.key)) continue;
-    const cap = appState.capabilities ? appState.capabilities[spec.key] : null;
+  if (!appState.capabilities || typeof appState.capabilities !== 'object') {
+    return values;
+  }
+  for (const [key, cap] of Object.entries(appState.capabilities)) {
+    if (EXCLUDED_SENSOR_KEYS.has(key)) continue;
     if (!cap || typeof cap !== 'object') continue;
-    const val = appState.settings ? appState.settings[spec.key] : undefined;
+    if (typeof cap.min !== 'number' || typeof cap.max !== 'number') continue;
+    const val = appState.settings ? appState.settings[key] : undefined;
     if (typeof val === 'number' && Number.isFinite(val)) {
-      values[spec.key] = val;
+      values[key] = val;
     }
   }
   return values;
@@ -276,29 +338,95 @@ function refreshProfileSelectOptions(selectedName = '') {
 }
 
 async function propagateTrackToActivePeers(newTrack) {
+  if (!newTrack) return false;
+  newTrack.enabled = true;
+
   const tasks = [];
   for (const pc of appState.activePeerConnections) {
     tasks.push(replaceActiveVideoTrack(pc, newTrack));
   }
-  await Promise.allSettled(tasks);
+  const results = await Promise.allSettled(tasks);
+  return results.some((r) => r.status === 'fulfilled' && r.value === true);
+}
+
+function handleSensorControlCommit(key, value) {
+  return async () => {};
+}
+
+function renderActiveSensorControls() {
+  renderSensorControls(
+    appState.capabilities,
+    appState.settings,
+    async (key, value) => {
+      if (!appState.track) return;
+      try {
+        const updated = await queueTrackConstraintUpdate(appState.track, { [key]: value }, 100);
+        if (updated) {
+          appState.settings = updated;
+        } else {
+          const readBack = readTrackCapabilitiesAndSettings(appState.track);
+          appState.settings = readBack.settings;
+        }
+        updatePreviewFormatBadge();
+      } catch (err) {
+        showToast(
+          `El dispositivo rechazó "${formatCapabilityLabel(key)}": ${
+            err && err.message ? err.message : 'restricción no soportada'
+          }`
+        );
+      }
+    },
+    async (modeKey, selectedModeValue) => {
+      if (!appState.track) return;
+      try {
+        if (selectedModeValue === 'manual') {
+          const linkedKey = Object.entries(KNOWN_MODE_LINKS).find(
+            ([, mKey]) => mKey === modeKey
+          )?.[0];
+          const currentVal =
+            linkedKey && appState.settings && typeof appState.settings[linkedKey] === 'number'
+              ? appState.settings[linkedKey]
+              : undefined;
+          const synced = await syncAutoToManualConstraint(
+            appState.track,
+            linkedKey || null,
+            modeKey,
+            currentVal
+          );
+          if (synced && synced.settings) {
+            appState.settings = synced.settings;
+          }
+        } else {
+          await queueTrackConstraintUpdate(appState.track, { [modeKey]: selectedModeValue }, 100);
+        }
+
+        const fresh = readTrackCapabilitiesAndSettings(appState.track);
+        appState.capabilities = fresh.capabilities || appState.capabilities;
+        appState.settings = fresh.settings || appState.settings;
+        renderActiveSensorControls();
+      } catch (err) {
+        const fresh = readTrackCapabilitiesAndSettings(appState.track);
+        appState.capabilities = fresh.capabilities || appState.capabilities;
+        appState.settings = fresh.settings || appState.settings;
+        renderActiveSensorControls();
+        showToast(
+          `No se pudo cambiar el modo en ${formatCapabilityLabel(modeKey)}: ${
+            err && err.message ? err.message : 'rechazado por el driver'
+          }`
+        );
+      }
+    }
+  );
 }
 
 async function initializeOrSwitchCamera(options = {}) {
-  const { resetFresh = true, preferredDeviceId = '' } = options || {};
+  const { resetFresh = true, preferredDeviceId = '', allowRearFallback = false } = options || {};
   const preset = getSelectedResolutionPreset();
   const isExplicitLensSwitch =
     typeof preferredDeviceId === 'string' && preferredDeviceId.trim() !== '';
-  let targetDeviceId = isExplicitLensSwitch
+  const targetDeviceId = isExplicitLensSwitch
     ? preferredDeviceId.trim()
     : appState.selectedDeviceId || undefined;
-
-  // Si aún no hay cámara elegida, obtener la lista y forzar la cámara 0 (índice 0)
-  if (!targetDeviceId) {
-    const availableCameras = await listVideoInputs();
-    if (availableCameras.length > 0 && availableCameras[0].deviceId) {
-      targetDeviceId = availableCameras[0].deviceId;
-    }
-  }
 
   const previousStream = appState.stream;
   const previousDeviceId = appState.selectedDeviceId;
@@ -320,26 +448,11 @@ async function initializeOrSwitchCamera(options = {}) {
       fps: appState.fps,
     });
 
-    // 2. Si era la primera vez (sin permisos previos) y abrió otra cámara distinta a la 0, cambiar a la cámara 0 ahora que ya tenemos permiso
-    if (!targetDeviceId) {
-      const camerasAfterPermission = await listVideoInputs();
-      if (
-        camerasAfterPermission.length > 0 &&
-        camerasAfterPermission[0].deviceId &&
-        opened.settings?.deviceId !== camerasAfterPermission[0].deviceId
-      ) {
-        stopCameraStream(opened.stream);
-        opened = await openCameraStream({
-          deviceId: camerasAfterPermission[0].deviceId,
-          width: preset ? preset.width : undefined,
-          height: preset ? preset.height : undefined,
-          fps: appState.fps,
-        });
-      }
-    }
-
     appState.stream = opened.stream;
     appState.track = opened.track;
+    if (appState.track) {
+      appState.track.enabled = true;
+    }
     appState.capabilities = opened.capabilities || {};
     appState.settings = opened.settings || {};
 
@@ -357,84 +470,31 @@ async function initializeOrSwitchCamera(options = {}) {
       } catch (_) {}
     }
 
-    await refreshCameraDeviceList(appState.selectedDeviceId);
-    updatePreviewFormatBadge();
+    const devices = await refreshCameraDeviceList(appState.selectedDeviceId);
 
-    renderSensorControls(
-      appState.capabilities,
-      appState.settings,
-      async (key, value) => {
-        if (!appState.track) return;
-        try {
-          const updated = await queueTrackConstraintUpdate(appState.track, { [key]: value }, 100);
-          if (updated) {
-            appState.settings = updated;
-          } else {
-            const readBack = readTrackCapabilitiesAndSettings(appState.track);
-            appState.settings = readBack.settings;
-          }
-          updatePreviewFormatBadge();
-        } catch (err) {
-          showToast(`No se pudo aplicar ${key}: ${err && err.message ? err.message : 'error'}`);
-        }
-      },
-      async (key, isAuto) => {
-        if (!appState.track) return;
-        const targetMode = isAuto ? 'continuous' : 'manual';
-        try {
-          await queueTrackConstraintUpdate(appState.track, { [key]: targetMode }, 100);
-          if (!isAuto) {
-            const dependentSpec = SENSOR_CAPABILITY_SPECS.find((s) => s.modeKey === key);
-            const capKey = dependentSpec ? dependentSpec.key : key;
-            const currentVal = appState.settings ? appState.settings[capKey] : undefined;
-            const synced = await syncAutoToManualConstraint(
-              appState.track,
-              capKey,
-              key,
-              currentVal
-            );
-            if (synced && synced.settings) {
-              appState.settings = synced.settings;
-            }
-          } else {
-            const readBack = readTrackCapabilitiesAndSettings(appState.track);
-            appState.settings = readBack.settings;
-          }
-
-          renderSensorControls(
-            appState.capabilities,
-            appState.settings,
-            async (ctrlKey, ctrlVal) => {
-              if (!appState.track) return;
-              const updated = await queueTrackConstraintUpdate(
-                appState.track,
-                { [ctrlKey]: ctrlVal },
-                100
-              );
-              if (updated) appState.settings = updated;
-            },
-            async (modeKey, autoState) => {
-              if (!appState.track) return;
-              await queueTrackConstraintUpdate(
-                appState.track,
-                { [modeKey]: autoState ? 'continuous' : 'manual' },
-                100
-              );
-              const readBack = readTrackCapabilitiesAndSettings(appState.track);
-              appState.settings = readBack.settings;
-            }
-          );
-        } catch (err) {
-          showToast(`Error al cambiar modo en ${key}`);
-        }
+    // Si en carga inicial no se fijó deviceId y el navegador abrió la frontal pese a haber trasera, cambiar a la trasera
+    if (allowRearFallback && !isExplicitLensSwitch && !targetDeviceId) {
+      const rearId = findPreferredBackCameraDeviceId(devices);
+      const facing = appState.settings && appState.settings.facingMode;
+      if (rearId && rearId !== appState.selectedDeviceId && facing !== 'environment') {
+        await initializeOrSwitchCamera({
+          resetFresh,
+          preferredDeviceId: rearId,
+          allowRearFallback: false,
+        });
+        return;
       }
-    );
+    }
 
-    if (!isExplicitLensSwitch && previousStream && previousStream !== appState.stream) {
-      await propagateTrackToActivePeers(appState.track);
+    updatePreviewFormatBadge();
+    renderActiveSensorControls();
+
+    if (appState.track && previousStream && previousStream !== appState.stream) {
+      const replaced = await propagateTrackToActivePeers(appState.track);
+      if (isExplicitLensSwitch && replaced) {
+        showToast('Cámara actualizada en la transmisión.');
+      }
       stopCameraStream(previousStream);
-    } else if (isExplicitLensSwitch && appState.track) {
-      await propagateTrackToActivePeers(appState.track);
     }
 
     if (resetFresh) {
@@ -467,6 +527,31 @@ async function initializeOrSwitchCamera(options = {}) {
   }
 }
 
+function registerPeerConnection(pc) {
+  if (!pc || appState.activePeerConnections.has(pc)) return;
+  appState.activePeerConnections.add(pc);
+  applySenderEncodingParams(pc, appState.bitrateKbps);
+
+  const cleanupPc = () => {
+    appState.activePeerConnections.delete(pc);
+  };
+
+  pc.addEventListener('connectionstatechange', () => {
+    if (
+      pc.connectionState === 'failed' ||
+      pc.connectionState === 'disconnected' ||
+      pc.connectionState === 'closed'
+    ) {
+      cleanupPc();
+    }
+  });
+  pc.addEventListener('iceconnectionstatechange', () => {
+    if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'closed') {
+      cleanupPc();
+    }
+  });
+}
+
 function setupEmitterPeer() {
   if (appState.emitterPeerController) {
     appState.emitterPeerController.destroy();
@@ -485,18 +570,7 @@ function setupEmitterPeer() {
       peerConfig: getPeerConfig(),
       onIncomingCall: (call) => {
         if (call && call.peerConnection) {
-          const pc = call.peerConnection;
-          appState.activePeerConnections.add(pc);
-          applySenderEncodingParams(pc, appState.bitrateKbps);
-          pc.addEventListener('connectionstatechange', () => {
-            if (
-              pc.connectionState === 'failed' ||
-              pc.connectionState === 'disconnected' ||
-              pc.connectionState === 'closed'
-            ) {
-              appState.activePeerConnections.delete(pc);
-            }
-          });
+          registerPeerConnection(call.peerConnection);
         }
       },
       onStatusChange: (status) => {
@@ -545,8 +619,10 @@ function startStatsMonitor() {
       return;
     }
 
-    const [firstPc] = Array.from(appState.activePeerConnections);
-    if (!firstPc) {
+    const activePc = Array.from(appState.activePeerConnections).find(
+      (pc) => pc && pc.connectionState !== 'closed'
+    );
+    if (!activePc) {
       const resEl = getEl('stat-resolution');
       const fpsEl = getEl('stat-fps');
       const brEl = getEl('stat-bitrate');
@@ -558,7 +634,7 @@ function startStatsMonitor() {
       return;
     }
 
-    const metrics = await collectWebRtcStats(firstPc, appState.prevStatsSample);
+    const metrics = await collectWebRtcStats(activePc, appState.prevStatsSample);
     appState.prevStatsSample = metrics.sample;
 
     const resEl = getEl('stat-resolution');
@@ -736,6 +812,7 @@ function bindEmitterEvents() {
       await initializeOrSwitchCamera({
         resetFresh: true,
         preferredDeviceId: requestedDeviceId,
+        allowRearFallback: false,
       });
     });
   }
@@ -748,6 +825,7 @@ function bindEmitterEvents() {
       await initializeOrSwitchCamera({
         resetFresh: false,
         preferredDeviceId: appState.selectedDeviceId,
+        allowRearFallback: false,
       });
     });
   }
@@ -762,6 +840,7 @@ function bindEmitterEvents() {
         await initializeOrSwitchCamera({
           resetFresh: false,
           preferredDeviceId: appState.selectedDeviceId,
+          allowRearFallback: false,
         });
       }
     });
@@ -839,6 +918,7 @@ function bindEmitterEvents() {
       await initializeOrSwitchCamera({
         resetFresh: false,
         preferredDeviceId: appState.selectedDeviceId,
+        allowRearFallback: false,
       });
 
       const result = await applyProfileToActiveCamera(
@@ -848,26 +928,7 @@ function bindEmitterEvents() {
       );
       const readBack = readTrackCapabilitiesAndSettings(appState.track);
       appState.settings = readBack.settings;
-
-      renderSensorControls(
-        appState.capabilities,
-        appState.settings,
-        async (key, value) => {
-          if (!appState.track) return;
-          const updated = await queueTrackConstraintUpdate(appState.track, { [key]: value }, 100);
-          if (updated) appState.settings = updated;
-        },
-        async (key, isAuto) => {
-          if (!appState.track) return;
-          await queueTrackConstraintUpdate(
-            appState.track,
-            { [key]: isAuto ? 'continuous' : 'manual' },
-            100
-          );
-          const latest = readTrackCapabilitiesAndSettings(appState.track);
-          appState.settings = latest.settings;
-        }
-      );
+      renderActiveSensorControls();
 
       const appliedCount = Object.keys(result.appliedConstraints || {}).length;
       showToast(`Perfil "${profile.name}" aplicado (${appliedCount} parámetros).`);
@@ -931,6 +992,7 @@ function bindEmitterEvents() {
       await initializeOrSwitchCamera({
         resetFresh: false,
         preferredDeviceId: appState.selectedDeviceId,
+        allowRearFallback: false,
       });
       showToast('Valores nativos releídos desde el hardware.');
     });
@@ -983,13 +1045,18 @@ export async function initApp() {
       obsVideo.playsInline = true;
     }
 
+    const ensureViewerPlaying = () => {
+      if (!obsVideo) return;
+      if (obsVideo.paused || obsVideo.readyState < 2) {
+        obsVideo.play().catch(() => {});
+      }
+    };
+
     const attachTrackListeners = (track) => {
-      if (!track) return;
-      track.addEventListener('unmute', () => {
-        if (obsVideo) {
-          obsVideo.play().catch(() => {});
-        }
-      });
+      if (!track || track.__obsViewerBound) return;
+      track.__obsViewerBound = true;
+      track.addEventListener('unmute', ensureViewerPlaying);
+      track.addEventListener('mute', ensureViewerPlaying);
     };
 
     const controller = startViewerAutoHealing({
@@ -1008,7 +1075,8 @@ export async function initApp() {
           remoteStream.getTracks().forEach((t) => attachTrackListeners(t));
         }
 
-        if (typeof remoteStream.addEventListener === 'function') {
+        if (typeof remoteStream.addEventListener === 'function' && !remoteStream.__obsStreamBound) {
+          remoteStream.__obsStreamBound = true;
           remoteStream.addEventListener('addtrack', (ev) => {
             if (ev && ev.track) {
               attachTrackListeners(ev.track);
@@ -1016,11 +1084,11 @@ export async function initApp() {
             if (obsVideo.srcObject !== remoteStream) {
               obsVideo.srcObject = remoteStream;
             }
-            obsVideo.play().catch(() => {});
+            ensureViewerPlaying();
           });
         }
 
-        obsVideo.play().catch(() => {});
+        ensureViewerPlaying();
       },
       onAuthRequired: (reason) => {
         showAuthModal(reason || 'Introduce la contraseña de la sala.');
@@ -1060,7 +1128,7 @@ export async function initApp() {
   refreshProfileSelectOptions();
   bindEmitterEvents();
 
-  await initializeOrSwitchCamera({ resetFresh: true });
+  await initializeOrSwitchCamera({ resetFresh: true, allowRearFallback: true });
   setupEmitterPeer();
 }
 
@@ -1078,21 +1146,37 @@ export function renderSensorControls(
   const caps = capabilities && typeof capabilities === 'object' ? capabilities : {};
   const currSettings = settings && typeof settings === 'object' ? settings : {};
 
-  for (const spec of SENSOR_CAPABILITY_SPECS) {
-    const cap = caps[spec.key];
-    if (cap === undefined || cap === null) {
-      continue;
-    }
+  for (const [key, cap] of Object.entries(caps)) {
+    if (EXCLUDED_SENSOR_KEYS.has(key)) continue;
+    if (cap === undefined || cap === null) continue;
+
+    const isModeArray = Array.isArray(cap);
+    const linkedModeKey = !isModeArray ? resolveModeKeyForCapability(key, caps) : null;
+    const supportedModes = linkedModeKey && Array.isArray(caps[linkedModeKey]) ? caps[linkedModeKey] : [];
 
     const row = document.createElement('div');
     row.className = 'sensor-control-row';
 
     const labelEl = document.createElement('span');
-    labelEl.textContent = spec.label;
+    labelEl.textContent = formatCapabilityLabel(key);
     row.appendChild(labelEl);
 
+    let isAutoActive = false;
     let modeCheckbox = null;
-    if (spec.modeKey && Array.isArray(caps[spec.modeKey]) && caps[spec.modeKey].length > 0) {
+
+    if (linkedModeKey && supportedModes.length > 0) {
+      const currentModeVal = currSettings[linkedModeKey];
+      const hasManualOption = supportedModes.includes('manual');
+      const autoOption =
+        supportedModes.find((m) => m === 'continuous' || m === 'single-shot' || m === 'auto') ||
+        supportedModes[0];
+
+      isAutoActive =
+        currentModeVal === 'continuous' ||
+        currentModeVal === 'single-shot' ||
+        currentModeVal === 'auto' ||
+        (!hasManualOption && currentModeVal !== undefined);
+
       const modeWrapper = document.createElement('label');
       modeWrapper.style.display = 'inline-flex';
       modeWrapper.style.alignItems = 'center';
@@ -1101,17 +1185,22 @@ export function renderSensorControls(
 
       modeCheckbox = document.createElement('input');
       modeCheckbox.type = 'checkbox';
-      const currentModeVal = currSettings[spec.modeKey];
-      modeCheckbox.checked =
-        currentModeVal === 'continuous' ||
-        currentModeVal === 'single-shot' ||
-        currentModeVal === 'auto';
+      modeCheckbox.checked = isAutoActive;
 
       modeCheckbox.addEventListener('change', () => {
-        const isAutoNow = Boolean(modeCheckbox.checked);
-        row.classList.toggle('sensor-control-row--disabled', isAutoNow);
+        const checkedNow = Boolean(modeCheckbox.checked);
+        const nextMode = checkedNow
+          ? autoOption
+          : hasManualOption
+          ? 'manual'
+          : supportedModes.find((m) => m !== autoOption) || autoOption;
+
+        row.classList.toggle(
+          'sensor-control-row--disabled',
+          nextMode !== 'manual' && !hasManualOption
+        );
         if (typeof onModeToggle === 'function') {
-          onModeToggle(spec.modeKey, isAutoNow);
+          onModeToggle(linkedModeKey, nextMode);
         }
       });
 
@@ -1126,12 +1215,12 @@ export function renderSensorControls(
       row.appendChild(spacer);
     }
 
-    if (typeof cap === 'object' && typeof cap.min === 'number' && typeof cap.max === 'number') {
+    if (typeof cap === 'object' && !isModeArray && typeof cap.min === 'number' && typeof cap.max === 'number') {
       const min = cap.min;
       const max = cap.max;
       const step = typeof cap.step === 'number' && cap.step > 0 ? cap.step : 1;
       const initialRaw =
-        typeof currSettings[spec.key] === 'number' ? currSettings[spec.key] : min;
+        typeof currSettings[key] === 'number' ? currSettings[key] : min;
       const initialVal = clampAndStepValue(initialRaw, min, max, step);
 
       const rangeInput = document.createElement('input');
@@ -1152,7 +1241,7 @@ export function renderSensorControls(
         const numVal = Number(rangeInput.value);
         numberInput.value = String(numVal);
         if (typeof onControlCommit === 'function') {
-          onControlCommit(spec.key, numVal, 'range');
+          onControlCommit(key, numVal, 'range');
         }
       });
 
@@ -1175,7 +1264,7 @@ export function renderSensorControls(
         numberInput.value = String(clamped);
         rangeInput.value = String(clamped);
         if (typeof onControlCommit === 'function') {
-          onControlCommit(spec.key, clamped, 'number');
+          onControlCommit(key, clamped, 'number');
         }
       };
 
@@ -1193,35 +1282,37 @@ export function renderSensorControls(
     } else if (typeof cap === 'boolean') {
       const boolCheckbox = document.createElement('input');
       boolCheckbox.type = 'checkbox';
-      boolCheckbox.checked = Boolean(currSettings[spec.key]);
+      boolCheckbox.checked = Boolean(currSettings[key]);
       boolCheckbox.addEventListener('change', () => {
         if (typeof onControlCommit === 'function') {
-          onControlCommit(spec.key, boolCheckbox.checked ? 1 : 0, 'range');
+          onControlCommit(key, boolCheckbox.checked, 'range');
         }
       });
       row.appendChild(boolCheckbox);
       row.appendChild(document.createElement('span'));
-    } else if (Array.isArray(cap)) {
+    } else if (isModeArray) {
       const selectEl = document.createElement('select');
       cap.forEach((optVal) => {
         const opt = document.createElement('option');
         opt.value = String(optVal);
         opt.textContent = String(optVal);
-        if (String(currSettings[spec.key]) === String(optVal)) {
+        if (String(currSettings[key]) === String(optVal)) {
           opt.selected = true;
         }
         selectEl.appendChild(opt);
       });
       selectEl.addEventListener('change', () => {
-        if (typeof onControlCommit === 'function') {
-          onControlCommit(spec.key, selectEl.value, 'number');
+        if (typeof onModeToggle === 'function') {
+          onModeToggle(key, selectEl.value);
+        } else if (typeof onControlCommit === 'function') {
+          onControlCommit(key, selectEl.value, 'number');
         }
       });
       row.appendChild(selectEl);
       row.appendChild(document.createElement('span'));
     }
 
-    if (modeCheckbox && modeCheckbox.checked) {
+    if (modeCheckbox && isAutoActive && !supportedModes.includes('manual')) {
       row.classList.add('sensor-control-row--disabled');
     }
 

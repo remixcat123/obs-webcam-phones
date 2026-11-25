@@ -23,6 +23,8 @@ function buildVideoConstraintCandidate(options = {}, tier = 0, hasExplicitDevice
 
   if (hasExplicitDevice) {
     video.deviceId = { exact: deviceId.trim() };
+  } else if (tier === 0 || tier === 1) {
+    video.facingMode = { ideal: 'environment' };
   }
 
   const hasWidth = typeof width === 'number' && Number.isFinite(width) && width > 0;

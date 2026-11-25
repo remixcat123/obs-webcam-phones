@@ -76,16 +76,28 @@ export async function replaceActiveVideoTrack(peerConnection, newTrack) {
     return false;
   }
 
+  if (newTrack) {
+    newTrack.enabled = true;
+  }
+
   const senders = peerConnection.getSenders();
   let replaced = false;
 
   for (const sender of senders) {
-    if (!sender || !sender.track || sender.track.kind !== 'video') {
-      continue;
-    }
+    if (!sender) continue;
+    const isVideoSender =
+      (sender.track && sender.track.kind === 'video') ||
+      (!sender.track && newTrack && newTrack.kind === 'video');
+
+    if (!isVideoSender) continue;
+
     if (typeof sender.replaceTrack === 'function') {
-      await sender.replaceTrack(newTrack || null);
-      replaced = true;
+      try {
+        await sender.replaceTrack(newTrack || null);
+        replaced = true;
+      } catch (_) {
+        // Evita dejar colgada la llamada si un sender no admite replaceTrack directamente
+      }
     }
   }
 
@@ -134,13 +146,34 @@ export function createEmitterPeer(options = {}) {
     ? new PeerCtor(String(roomId), resolvedPeerConfig)
     : new PeerCtor(resolvedPeerConfig);
 
+  const attachPeerConnectionHandlers = (call, pc) => {
+    if (!pc || pc.__obsP2pBound) return;
+    pc.__obsP2pBound = true;
+    applySenderEncodingParams(pc, currentBitrateKbps);
+
+    pc.addEventListener('connectionstatechange', () => {
+      if (destroyed) return;
+      if (pc.connectionState === 'connected') {
+        notifyStatus('streaming', { activeCalls: activeCalls.size });
+      } else if (
+        pc.connectionState === 'disconnected' ||
+        pc.connectionState === 'failed' ||
+        pc.connectionState === 'closed'
+      ) {
+        if (call) activeCalls.delete(call);
+        notifyStatus(activeCalls.size > 0 ? 'streaming' : 'ready', {
+          activeCalls: activeCalls.size,
+        });
+      }
+    });
+  };
+
   const bindCallLifecycle = (call) => {
     if (!call) return;
     activeCalls.add(call);
 
-    const pc = call.peerConnection;
-    if (pc) {
-      applySenderEncodingParams(pc, currentBitrateKbps);
+    if (call.peerConnection) {
+      attachPeerConnectionHandlers(call, call.peerConnection);
     }
 
     const cleanupCall = () => {
@@ -153,6 +186,9 @@ export function createEmitterPeer(options = {}) {
     };
 
     call.on('stream', () => {
+      if (call.peerConnection) {
+        attachPeerConnectionHandlers(call, call.peerConnection);
+      }
       if (!destroyed) {
         notifyStatus('streaming', { activeCalls: activeCalls.size });
       }
@@ -162,23 +198,6 @@ export function createEmitterPeer(options = {}) {
       cleanupCall();
       notifyError(callErr);
     });
-    if (pc) {
-      pc.addEventListener('connectionstatechange', () => {
-        if (destroyed) return;
-        if (pc.connectionState === 'connected') {
-          notifyStatus('streaming', { activeCalls: activeCalls.size });
-        } else if (
-          pc.connectionState === 'disconnected' ||
-          pc.connectionState === 'failed' ||
-          pc.connectionState === 'closed'
-        ) {
-          activeCalls.delete(call);
-          notifyStatus(activeCalls.size > 0 ? 'streaming' : 'ready', {
-            activeCalls: activeCalls.size,
-          });
-        }
-      });
-    }
   };
 
   peer.on('open', (id) => {
@@ -222,7 +241,9 @@ export function createEmitterPeer(options = {}) {
 
     const stream = typeof getStream === 'function' ? getStream() : null;
     if (!hasValidVideoStream(stream)) {
-      const streamError = new Error('No hay MediaStream de video activo disponible para responder la llamada.');
+      const streamError = new Error(
+        'No hay MediaStream de video activo disponible para responder la llamada.'
+      );
       try {
         if (call.peerConnection && typeof call.peerConnection.close === 'function') {
           call.peerConnection.close();
@@ -233,12 +254,21 @@ export function createEmitterPeer(options = {}) {
       return;
     }
 
+    stream.getVideoTracks().forEach((t) => {
+      if (t) t.enabled = true;
+    });
+
     bindCallLifecycle(call);
 
     try {
       call.answer(stream);
       if (call.peerConnection) {
-        applySenderEncodingParams(call.peerConnection, currentBitrateKbps);
+        attachPeerConnectionHandlers(call, call.peerConnection);
+      }
+      if (typeof onIncomingCall === 'function') {
+        try {
+          onIncomingCall(call);
+        } catch (_) {}
       }
       notifyStatus('streaming', { activeCalls: activeCalls.size });
     } catch (answerErr) {
@@ -505,23 +535,43 @@ export function startViewerAutoHealing(options = {}) {
       }
     });
 
-    if (call.peerConnection) {
-      call.peerConnection.oniceconnectionstatechange = () => {
+    const bindPcIceHandlers = (pc) => {
+      if (!pc || pc.__viewerIceBound) return;
+      pc.__viewerIceBound = true;
+
+      pc.oniceconnectionstatechange = () => {
         if (stopped || activeCall !== call) return;
-        const iceState = call.peerConnection.iceConnectionState;
+        const iceState = pc.iceConnectionState;
         if (iceState === 'failed' || iceState === 'disconnected') {
           handleStreamLoss(!streamReceived);
         }
       };
 
-      call.peerConnection.addEventListener('connectionstatechange', () => {
+      pc.addEventListener('iceconnectionstatechange', () => {
         if (stopped || activeCall !== call) return;
-        const state = call.peerConnection.connectionState;
+        const iceState = pc.iceConnectionState;
+        if (iceState === 'failed' || iceState === 'disconnected') {
+          handleStreamLoss(!streamReceived);
+        }
+      });
+
+      pc.addEventListener('connectionstatechange', () => {
+        if (stopped || activeCall !== call) return;
+        const state = pc.connectionState;
         if (state === 'failed' || state === 'disconnected' || state === 'closed') {
           handleStreamLoss(!streamReceived);
         }
       });
+    };
+
+    if (call.peerConnection) {
+      bindPcIceHandlers(call.peerConnection);
     }
+    call.on('stream', () => {
+      if (call.peerConnection) {
+        bindPcIceHandlers(call.peerConnection);
+      }
+    });
   };
 
   const initPeer = () => {
@@ -652,9 +702,11 @@ export async function collectWebRtcStats(peerConnection, prevSample = null) {
   let resolution = 'N/A';
   let fps = 0;
   let totalBytesSent = 0;
+  let totalFramesEncoded = 0;
   let sampleTimestamp = null;
   let rttMs = null;
   const trackMap = new Map();
+  const candidatePairs = [];
 
   report.forEach((stat) => {
     if (!stat || typeof stat !== 'object') return;
@@ -662,6 +714,9 @@ export async function collectWebRtcStats(peerConnection, prevSample = null) {
       if (stat.id) {
         trackMap.set(stat.id, stat);
       }
+    }
+    if (stat.type === 'candidate-pair') {
+      candidatePairs.push(stat);
     }
   });
 
@@ -671,22 +726,28 @@ export async function collectWebRtcStats(peerConnection, prevSample = null) {
     if (stat.type === 'outbound-rtp' && (stat.kind === 'video' || stat.mediaType === 'video')) {
       if (typeof stat.bytesSent === 'number') {
         totalBytesSent += stat.bytesSent;
-        if (
-          sampleTimestamp === null ||
-          (typeof stat.timestamp === 'number' && stat.timestamp > sampleTimestamp)
-        ) {
-          sampleTimestamp = stat.timestamp;
-        }
+      }
+      if (typeof stat.framesEncoded === 'number') {
+        totalFramesEncoded += stat.framesEncoded;
+      }
+      if (
+        typeof stat.timestamp === 'number' &&
+        (sampleTimestamp === null || stat.timestamp > sampleTimestamp)
+      ) {
+        sampleTimestamp = stat.timestamp;
       }
 
       if (typeof stat.framesPerSecond === 'number' && stat.framesPerSecond > 0) {
         fps = Math.round(stat.framesPerSecond);
       }
 
-      if (typeof stat.frameWidth === 'number' && typeof stat.frameHeight === 'number') {
-        if (stat.frameWidth > 0 && stat.frameHeight > 0) {
-          resolution = `${stat.frameWidth}x${stat.frameHeight}`;
-        }
+      if (
+        typeof stat.frameWidth === 'number' &&
+        typeof stat.frameHeight === 'number' &&
+        stat.frameWidth > 0 &&
+        stat.frameHeight > 0
+      ) {
+        resolution = `${stat.frameWidth}x${stat.frameHeight}`;
       } else if (stat.trackId && trackMap.has(stat.trackId)) {
         const trackStat = trackMap.get(stat.trackId);
         if (
@@ -700,11 +761,7 @@ export async function collectWebRtcStats(peerConnection, prevSample = null) {
       }
     }
 
-    if (stat.type === 'candidate-pair' && (stat.nominated || stat.selected)) {
-      if (typeof stat.currentRoundTripTime === 'number' && stat.currentRoundTripTime >= 0) {
-        rttMs = Math.round(stat.currentRoundTripTime * 1000);
-      }
-    } else if (
+    if (
       rttMs === null &&
       stat.type === 'remote-inbound-rtp' &&
       (stat.kind === 'video' || stat.mediaType === 'video') &&
@@ -714,6 +771,42 @@ export async function collectWebRtcStats(peerConnection, prevSample = null) {
       rttMs = Math.round(stat.roundTripTime * 1000);
     }
   });
+
+  if (resolution === 'N/A' && typeof peerConnection.getSenders === 'function') {
+    const videoSender = peerConnection
+      .getSenders()
+      .find((s) => s && s.track && s.track.kind === 'video');
+    if (videoSender && videoSender.track && typeof videoSender.track.getSettings === 'function') {
+      const trackSettings = videoSender.track.getSettings();
+      if (
+        trackSettings &&
+        typeof trackSettings.width === 'number' &&
+        typeof trackSettings.height === 'number' &&
+        trackSettings.width > 0 &&
+        trackSettings.height > 0
+      ) {
+        resolution = `${trackSettings.width}x${trackSettings.height}`;
+      }
+    }
+  }
+
+  const preferredPair =
+    candidatePairs.find(
+      (p) => (p.nominated || p.selected) && typeof p.currentRoundTripTime === 'number' && p.currentRoundTripTime >= 0
+    ) ||
+    candidatePairs.find(
+      (p) =>
+        (p.state === 'succeeded' || p.nominated || p.selected) &&
+        typeof p.currentRoundTripTime === 'number' &&
+        p.currentRoundTripTime >= 0
+    ) ||
+    candidatePairs.find(
+      (p) => typeof p.currentRoundTripTime === 'number' && p.currentRoundTripTime >= 0
+    );
+
+  if (preferredPair) {
+    rttMs = Math.round(preferredPair.currentRoundTripTime * 1000);
+  }
 
   if (sampleTimestamp === null) {
     sampleTimestamp = performance.now();
@@ -734,6 +827,21 @@ export async function collectWebRtcStats(peerConnection, prevSample = null) {
     }
   }
 
+  if (
+    fps === 0 &&
+    prevSample &&
+    typeof prevSample.timestamp === 'number' &&
+    typeof prevSample.framesEncoded === 'number' &&
+    sampleTimestamp > prevSample.timestamp &&
+    totalFramesEncoded >= prevSample.framesEncoded
+  ) {
+    const deltaSeconds = (sampleTimestamp - prevSample.timestamp) / 1000;
+    const deltaFrames = totalFramesEncoded - prevSample.framesEncoded;
+    if (deltaSeconds > 0) {
+      fps = Math.max(0, Math.round(deltaFrames / deltaSeconds));
+    }
+  }
+
   return {
     resolution,
     fps,
@@ -742,6 +850,7 @@ export async function collectWebRtcStats(peerConnection, prevSample = null) {
     sample: {
       timestamp: sampleTimestamp,
       bytesSent: totalBytesSent,
+      framesEncoded: totalFramesEncoded,
     },
   };
 }
