@@ -9,6 +9,11 @@ Aplicación web estática (pensada para desplegarse en **GitHub Pages** bajo HTT
 - **Perfiles persistentes y JSON:** Guardado de perfiles con persistencia en `localStorage` y exportación/importación manual en formato `.json` con ajuste de rangos (`clamping`) al sensor activo.
 - **Ahorro energético y métricas:** Bloqueo de pantalla (`WakeLock`), modo ahorro OLED a doble toque ocultando el preview local y monitor de métricas WebRTC bajo demanda.
 
+## Conectividad y privacidad (LAN e Internet)
+- **Flujo P2P directo:** El video viaja punto a punto (WebRTC) entre tu dispositivo y OBS Studio o Navegador; el servidor de señalización (PeerJS) solo coordina el enlace inicial y no almacena ni retransmite tu video.
+- **Uso en red local o remota:** Aunque está optimizado para baja latencia en red local (LAN), también puede conectar entre distintas redes cuando el NAT/firewall lo permite (mediante STUN).
+- **Buenas prácticas de acceso:** Utiliza un **ID de sala aleatorio** y configura siempre una **clave opcional** si vas a usar la transmisión fuera de tu red local. Evita mostrar la URL del receptor (`?view&id=...`) en pantalla durante una transmisión en vivo.
+
 ## Créditos, notas de campo y estado real
 - **Arquitectura y visión:** Definidas por el autor, con asistencia iterativa de **Gemini (IA)** en el diseño de contratos, depuración paso a paso y ajuste de la arquitectura modular.
 - **Estado actual ("funciona, pero..."):** Como buen proyecto en evolución que toca WebRTC, redes locales y drivers de cámara distintos según el teléfono, **tiene algunos fallos mínimos y comportamientos rebeldes bajo el capó**... aunque, si no los buscas, **creo que casi ni se notan**. Las *issues* y *PRs* para pulir esos detalles son más que bienvenidos.
