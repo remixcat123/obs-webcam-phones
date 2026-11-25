@@ -320,6 +320,24 @@ async function initializeOrSwitchCamera(options = {}) {
       fps: appState.fps,
     });
 
+    // 2. Si era la primera vez (sin permisos previos) y abrió otra cámara distinta a la 0, cambiar a la cámara 0 ahora que ya tenemos permiso
+    if (!targetDeviceId) {
+      const camerasAfterPermission = await listVideoInputs();
+      if (
+        camerasAfterPermission.length > 0 &&
+        camerasAfterPermission[0].deviceId &&
+        opened.settings?.deviceId !== camerasAfterPermission[0].deviceId
+      ) {
+        stopCameraStream(opened.stream);
+        opened = await openCameraStream({
+          deviceId: camerasAfterPermission[0].deviceId,
+          width: preset ? preset.width : undefined,
+          height: preset ? preset.height : undefined,
+          fps: appState.fps,
+        });
+      }
+    }
+
     appState.stream = opened.stream;
     appState.track = opened.track;
     appState.capabilities = opened.capabilities || {};
