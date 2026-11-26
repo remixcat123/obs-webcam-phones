@@ -173,3 +173,31 @@ export function clampAndStepValue(value, min, max, step = 1) {
 
   return clamped;
 }
+
+const SESSION_KEY = 'obs_p2p_session_v1';
+let sessionTimer = null;
+let pendingPatch = {};
+
+export function loadSession() {
+  try {
+    const o = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+    return o && typeof o === 'object' ? o : {};
+  } catch (_) { return {}; }
+}
+
+export function saveSession(patch) {
+  pendingPatch = { ...pendingPatch, ...patch };
+  clearTimeout(sessionTimer);
+  sessionTimer = setTimeout(flushSession, 250);
+}
+
+export function flushSession() {
+  clearTimeout(sessionTimer);
+  if (!Object.keys(pendingPatch).length) return;
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...loadSession(), ...pendingPatch }));
+  } catch (_) {}
+  pendingPatch = {};
+}
+
+window.addEventListener('pagehide', flushSession);

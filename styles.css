@@ -407,7 +407,6 @@ button[type="submit"]:hover:not(:disabled),
 
 .sensor-control-row--disabled {
   opacity: 0.5;
-  pointer-events: none;
 }
 
 .sensor-control-row input[type="range"] {
