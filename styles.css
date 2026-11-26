@@ -1,0 +1,443 @@
+/* ==========================================================
+   Webcam P2P Persistente · OBS  v2.1  —  styles.css
+   Tema oscuro minimalista, diseño móvil táctil primero.
+   ========================================================== */
+
+/* ---------- 1. Variables ---------- */
+:root {
+  --bg: #0f1115;
+  --surface: #181b21;
+  --surface-2: #222731;
+  --border: #2d3340;
+  --text: #e6e8ec;
+  --text-muted: #8b93a1;
+  --accent: #4f9cff;
+  --accent-ink: #06121f;
+  --ok: #3ecf6a;
+  --warn: #f5b942;
+  --danger: #ff5c5c;
+  --radius: 10px;
+  --tap-min: 44px;
+  --gap: 12px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  color-scheme: dark;
+}
+
+/* ---------- 2. Base ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.4;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  min-height: 100%;
+  height: auto;
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+}
+
+h1, h2 { margin: 0; font-weight: 600; }
+h1 { font-size: 1.15rem; }
+h2 { font-size: 1rem; margin-bottom: var(--gap); }
+
+p { margin: 0 0 var(--gap); }
+.muted { color: var(--text-muted); font-size: 0.9rem; }
+
+/* ---------- 3. Clases de estado ---------- */
+.hidden { display: none !important; }
+
+.control-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* ---------- 4. Controles de formulario ---------- */
+button, select, input {
+  min-height: var(--tap-min);
+  font-family: inherit;
+  font-size: 16px; /* evita el zoom automático en iOS */
+  color: var(--text);
+}
+
+select, input[type="text"], input[type="password"], input[type="number"] {
+  width: 100%;
+  padding: 0 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+select { appearance: none; -webkit-appearance: none; padding-right: 32px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+                    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+input[readonly] { color: var(--text-muted); }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn {
+  padding: 0 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.btn:active { background: var(--border); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.btn-primary:active { filter: brightness(0.9); background: var(--accent); }
+
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: var(--gap);
+}
+.btn-row .btn { flex: 1 1 auto; }
+
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: var(--gap); }
+.field label { color: var(--text-muted); font-size: 0.85rem; }
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 var(--gap);
+  margin-top: var(--gap);
+}
+
+/* ---------- 5. Cabecera y estado de conexión ---------- */
+.app-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px var(--gap);
+  padding: var(--gap) 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.status-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex: none;
+}
+.status-idle    { background: var(--text-muted); }
+.status-waiting { background: var(--warn); }
+.status-live    { background: var(--ok); box-shadow: 0 0 0 3px rgba(62, 207, 106, 0.2); }
+.status-error   { background: var(--danger); }
+
+.viewers { margin-left: 4px; }
+
+/* ---------- 6. Layout emisor ---------- */
+.layout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  padding: var(--gap);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.col-main, .col-side { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; }
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+/* ---------- 7. Vista previa ---------- */
+#preview-wrapper {
+  position: relative;
+  width: 100%;
+  margin: 0 auto;
+  background: #000;
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+#preview-wrapper.ratio-16-9 { aspect-ratio: 16 / 9; }
+#preview-wrapper.ratio-9-16 { aspect-ratio: 9 / 16; max-height: 60vh; width: auto; }
+
+#local-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+body.oled-on #local-video { visibility: hidden; }
+
+/* ---------- 8. Filas de control (sensor y bitrate) ---------- */
+.control-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) minmax(0, 2fr) 90px;
+  align-items: center;
+  gap: 8px var(--gap);
+  padding: 6px 0;
+}
+.control-label { color: var(--text); font-size: 0.9rem; }
+.control-number { width: 90px; text-align: right; padding: 0 8px; }
+
+.control-row-select { grid-template-columns: minmax(90px, 1fr) minmax(0, 2fr); }
+.control-row-toggle { grid-template-columns: minmax(90px, 1fr) auto; }
+
+/* Range */
+input[type="range"] {
+  width: 100%;
+  min-height: var(--tap-min);
+  margin: 0;
+  background: transparent;
+  touch-action: pan-y;
+  -webkit-appearance: none;
+  appearance: none;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+}
+input[type="range"]::-moz-range-track {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 28px;
+  height: 28px;
+  margin-top: -11px;
+  background: var(--accent);
+  border: 3px solid var(--surface);
+  border-radius: 50%;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  background: var(--accent);
+  border: 3px solid var(--surface);
+  border-radius: 50%;
+}
+input[type="range"]:disabled { opacity: 0.45; }
+
+/* Interruptor (torch) */
+.control-toggle {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 52px;
+  min-height: 30px;
+  height: 30px;
+  padding: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.control-toggle::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition: transform 0.15s, background 0.15s;
+}
+.control-toggle:checked { background: rgba(79, 156, 255, 0.25); border-color: var(--accent); }
+.control-toggle:checked::after { transform: translateX(22px); background: var(--accent); }
+
+/* ---------- 9. Métricas ---------- */
+#stats-details summary {
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-weight: 600;
+}
+.stats-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px var(--gap);
+  margin: var(--gap) 0 0;
+  font-variant-numeric: tabular-nums;
+}
+.stats-grid dt { color: var(--text-muted); }
+.stats-grid dd { margin: 0; text-align: right; }
+
+/* ---------- 10. Modo OLED ---------- */
+#oled-saver {
+  display: none;
+  background: #000000;
+}
+#oled-saver.oled-active {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #000000;
+  touch-action: manipulation;
+}
+
+/* ---------- 11. Toast ---------- */
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + var(--safe-bottom));
+  transform: translate(-50%, 16px);
+  max-width: calc(100vw - 32px);
+  padding: 10px 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 10000;
+  transition: opacity 0.2s, transform 0.2s;
+}
+#toast.toast-visible { opacity: 1; transform: translate(-50%, 0); }
+#toast.toast-error { border-color: var(--danger); }
+#toast.toast-ok { border-color: var(--ok); }
+
+/* ---------- 12. Diálogo de copia manual ---------- */
+#copy-fallback-dialog {
+  width: min(92vw, 480px);
+  padding: 20px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+#copy-fallback-dialog::backdrop { background: rgba(0, 0, 0, 0.7); }
+
+/* ---------- 13. Modo receptor (OBS) ---------- */
+html.receiver,
+html.receiver body {
+  background: transparent;
+  overflow: hidden;
+  padding: 0;
+}
+
+#obs-app {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
+}
+
+#obs-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: transparent;
+}
+
+#obs-status {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--text);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+#obs-auth-modal {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 10;
+}
+#obs-auth-modal.hidden { display: none !important; }
+
+.auth-box {
+  width: min(92vw, 360px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.auth-box label { color: var(--text-muted); font-size: 0.85rem; }
+.auth-box h2 { margin: 0; }
+.auth-error { margin: 0; color: var(--danger); font-size: 0.9rem; }
+
+/* ---------- 14. Responsive ---------- */
+@media (max-width: 420px) {
+  .control-row,
+  .control-row-select {
+    grid-template-columns: minmax(0, 1fr) 90px;
+  }
+  .control-row-select { grid-template-columns: minmax(0, 1fr); }
+  .control-row .control-label { grid-column: 1 / -1; }
+  .control-row-toggle { grid-template-columns: minmax(0, 1fr) auto; }
+  .control-row-toggle .control-label { grid-column: auto; }
+  .grid-2 { grid-template-columns: 1fr; }
+}
+
+@media (min-width: 900px) {
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    align-items: start;
+    padding: 20px;
+    gap: 20px;
+  }
+  .col-side { position: sticky; top: 12px; }
+}
+
+/* ---------- 15. Movimiento reducido ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
