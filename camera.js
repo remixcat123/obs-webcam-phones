@@ -153,7 +153,6 @@ export async function openCameraStream(options = {}) {
   }
 }
 
-  
   if (!stream) {
     const baseMsg =
       lastError && lastError.message
@@ -216,6 +215,46 @@ export function readTrackCapabilitiesAndSettings(track) {
   return { capabilities, settings };
 }
 
+export const SENSOR_GROUPS = {
+  exposureMode: ['exposureTime', 'iso'],
+  whiteBalanceMode: ['colorTemperature'],
+  focusMode: ['focusDistance'],
+};
+const GROUPED = new Set(Object.values(SENSOR_GROUPS).flat());
+
+export function seedDesiredState(track, desired) { track.__desired = { ...desired }; }
+export function getDesiredState(track) { return { ...(track.__desired || {}) }; }
+
+async function applySensorState(track) {
+  const d = track.__desired || {};
+  const s = track.getSettings?.() || {};
+  const base = {};
+  if (s.width) base.width = { ideal: s.width };
+  if (s.height) base.height = { ideal: s.height };
+  if (s.frameRate) base.frameRate = { ideal: s.frameRate };
+
+  const advanced = [];
+  for (const [modeKey, valueKeys] of Object.entries(SENSOR_GROUPS)) {
+    if (d[modeKey] === undefined) continue;
+    const entry = { [modeKey]: d[modeKey] };
+    if (d[modeKey] === 'manual') {
+      valueKeys.forEach((k) => { if (d[k] !== undefined) entry[k] = d[k]; });
+    }
+    advanced.push(entry);
+  }
+  for (const [k, v] of Object.entries(d)) {
+    if (k in SENSOR_GROUPS || GROUPED.has(k)) continue;
+    advanced.push({ [k]: v });
+  }
+  if (!advanced.length) return;
+  await track.applyConstraints({ ...base, advanced });
+}
+
+export async function reapplyDesiredState(track) {
+  try { await applySensorState(track); } catch (_) {}
+  return track.getSettings?.() || null;
+}
+
 export function queueTrackConstraintUpdate(track, constraintPatch, throttleMs = 100) {
   if (!track || typeof track.applyConstraints !== 'function') {
     return Promise.resolve(null);
@@ -226,13 +265,14 @@ export function queueTrackConstraintUpdate(track, constraintPatch, throttleMs = 
 
   return new Promise((resolve, reject) => {
     const sanitizedPatch = sanitizeConstraintPatchForTrack(track, constraintPatch);
+    
+    // 1) Guardamos el parche en track.__desired justo después de sanitizedPatch
+    track.__desired = { ...(track.__desired || {}), ...sanitizedPatch };
+
     queueState.pendingPatch = {
       ...(queueState.pendingPatch || {}),
       ...sanitizedPatch,
     };
-
-    track.__desired = { ...(track.__desired || {}), ...sanitizedPatch };
-
     queueState.pendingWaiters.push({ resolve, reject });
 
     const flushLatest = async () => {
@@ -252,10 +292,12 @@ export function queueTrackConstraintUpdate(track, constraintPatch, throttleMs = 
       }
 
       queueState.lastDispatchTime = Date.now();
-queueState.inFlight = (async () => {
-  await applySensorState(track);
-  return track.getSettings?.() || null;
-})();
+
+      // 2) Reemplazamos el antiguo try/catch por applySensorState
+      queueState.inFlight = (async () => {
+        await applySensorState(track);
+        return track.getSettings?.() || null;
+      })();
 
       try {
         const updatedSettings = await queueState.inFlight;
@@ -428,44 +470,4 @@ export function stopCameraStream(stream) {
       track.stop();
     } catch (_) {}
   });
-}
-
-export const SENSOR_GROUPS = {
-  exposureMode: ['exposureTime', 'iso'],
-  whiteBalanceMode: ['colorTemperature'],
-  focusMode: ['focusDistance'],
-};
-const GROUPED = new Set(Object.values(SENSOR_GROUPS).flat());
-
-export function seedDesiredState(track, desired) { track.__desired = { ...desired }; }
-export function getDesiredState(track) { return { ...(track.__desired || {}) }; }
-
-async function applySensorState(track) {
-  const d = track.__desired || {};
-  const s = track.getSettings?.() || {};
-  const base = {};
-  if (s.width) base.width = { ideal: s.width };
-  if (s.height) base.height = { ideal: s.height };
-  if (s.frameRate) base.frameRate = { ideal: s.frameRate };
-
-  const advanced = [];
-  for (const [modeKey, valueKeys] of Object.entries(SENSOR_GROUPS)) {
-    if (d[modeKey] === undefined) continue;
-    const entry = { [modeKey]: d[modeKey] };
-    if (d[modeKey] === 'manual') {
-      valueKeys.forEach((k) => { if (d[k] !== undefined) entry[k] = d[k]; });
-    }
-    advanced.push(entry);
-  }
-  for (const [k, v] of Object.entries(d)) {
-    if (k in SENSOR_GROUPS || GROUPED.has(k)) continue;
-    advanced.push({ [k]: v });
-  }
-  if (!advanced.length) return;
-  await track.applyConstraints({ ...base, advanced });
-}
-
-export async function reapplyDesiredState(track) {
-  try { await applySensorState(track); } catch (_) {}
-  return track.getSettings?.() || null;
 }
