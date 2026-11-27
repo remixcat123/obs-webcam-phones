@@ -179,10 +179,12 @@ let sessionTimer = null;
 let pendingPatch = {};
 
 export function loadSession() {
+  let stored = {};
   try {
     const o = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
-    return o && typeof o === 'object' ? o : {};
-  } catch (_) { return {}; }
+    if (o && typeof o === 'object') stored = o;
+  } catch (_) {}
+  return { ...stored, ...pendingPatch };   // incluye lo aún no volcado
 }
 
 export function saveSession(patch) {
@@ -194,10 +196,12 @@ export function saveSession(patch) {
 export function flushSession() {
   clearTimeout(sessionTimer);
   if (!Object.keys(pendingPatch).length) return;
-  try {
-    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...loadSession(), ...pendingPatch }));
-  } catch (_) {}
+  const merged = loadSession();
   pendingPatch = {};
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(merged)); } catch (_) {}
 }
 
 window.addEventListener('pagehide', flushSession);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushSession();
+});

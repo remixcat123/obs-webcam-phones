@@ -215,118 +215,173 @@ export function readTrackCapabilitiesAndSettings(track) {
   return { capabilities, settings };
 }
 
+// ===== Motor de sensores =====
 export const SENSOR_GROUPS = {
   exposureMode: ['exposureTime', 'iso'],
   whiteBalanceMode: ['colorTemperature'],
   focusMode: ['focusDistance'],
 };
-const GROUPED = new Set(Object.values(SENSOR_GROUPS).flat());
 
-export function seedDesiredState(track, desired) { track.__desired = { ...desired }; }
-export function getDesiredState(track) { return { ...(track.__desired || {}) }; }
+const VALUE_TO_MODE = {};
+Object.entries(SENSOR_GROUPS).forEach(([mode, keys]) =>
+  keys.forEach((k) => { VALUE_TO_MODE[k] = mode; })
+);
 
-async function applySensorState(track) {
-  const d = track.__desired || {};
-  const s = track.getSettings?.() || {};
-  const base = {};
-  if (s.width) base.width = { ideal: s.width };
-  if (s.height) base.height = { ideal: s.height };
-  if (s.frameRate) base.frameRate = { ideal: s.frameRate };
+// Valores de arranque al pasar a manual si el sensor no informa los actuales.
+// exposureTime va en unidades de 100 µs (167 ≈ 1/60 s). Se recortan al rango real.
+const MANUAL_DEFAULTS = { exposureTime: 167, iso: 400 };
 
-  const advanced = [];
-  for (const [modeKey, valueKeys] of Object.entries(SENSOR_GROUPS)) {
-    if (d[modeKey] === undefined) continue;
-    const entry = { [modeKey]: d[modeKey] };
-    if (d[modeKey] === 'manual') {
-      valueKeys.forEach((k) => { if (d[k] !== undefined) entry[k] = d[k]; });
+export function seedDesiredState(track, desired) { track.__desired = { ...(desired || {}) }; }
+export function getDesiredState(track) { return { ...((track && track.__desired) || {}) }; }
+
+function normalizePatch(track, patch) {
+  const caps = (track.getCapabilities && track.getCapabilities()) || {};
+  const out = {};
+  for (const [key, val] of Object.entries(patch || {})) {
+    if (val === undefined || val === null) continue;
+    const cap = caps[key];
+    if (cap === undefined) continue;                       // el sensor no lo soporta
+    if (Array.isArray(cap)) { if (cap.includes(val)) out[key] = val; continue; }
+    if (typeof cap === 'boolean') { if (typeof val === 'boolean') out[key] = val; continue; }
+    if (cap && typeof cap === 'object' && typeof val === 'number') {
+      out[key] = clampAndStepValue(val, cap.min, cap.max, cap.step > 0 ? cap.step : 1);
     }
-    advanced.push(entry);
   }
-  for (const [k, v] of Object.entries(d)) {
-    if (k in SENSOR_GROUPS || GROUPED.has(k)) continue;
-    advanced.push({ [k]: v });
+  return out;
+}
+
+function withManualCompanions(track, patch) {
+  const caps = (track.getCapabilities && track.getCapabilities()) || {};
+  const live = (track.getSettings && track.getSettings()) || {};
+  const desired = track.__desired || {};
+  const out = { ...patch };
+
+  // Mover un valor manual implica poner su modo en manual
+  for (const [valueKey, modeKey] of Object.entries(VALUE_TO_MODE)) {
+    if (out[valueKey] !== undefined && out[modeKey] === undefined &&
+        Array.isArray(caps[modeKey]) && caps[modeKey].includes('manual')) {
+      out[modeKey] = 'manual';
+    }
   }
-  if (!advanced.length) return;
-  await track.applyConstraints({ ...base, advanced });
+
+  for (const [modeKey, valueKeys] of Object.entries(SENSOR_GROUPS)) {
+    if (out[modeKey] !== undefined && out[modeKey] !== 'manual') {
+      valueKeys.forEach((k) => delete out[k]);              // modo auto: no mandar valores
+      continue;
+    }
+    if (out[modeKey] !== 'manual') continue;
+    // Modo manual: SIEMPRE enviar sus valores en la misma petición
+    for (const k of valueKeys) {
+      if (out[k] !== undefined) continue;
+      const cap = caps[k];
+      if (!cap || typeof cap !== 'object') continue;
+      let v = desired[k];
+      if (typeof v !== 'number') v = live[k];
+      if (typeof v !== 'number') v = MANUAL_DEFAULTS[k];
+      if (typeof v !== 'number' && Number.isFinite(cap.min) && Number.isFinite(cap.max)) {
+        v = (cap.min + cap.max) / 2;
+      }
+      if (typeof v === 'number') {
+        out[k] = clampAndStepValue(v, cap.min, cap.max, cap.step > 0 ? cap.step : 1);
+      }
+    }
+  }
+  return out;
+}
+
+function splitIntoChunks(obj) {
+  const chunks = [];
+  const used = new Set();
+  for (const [modeKey, valueKeys] of Object.entries(SENSOR_GROUPS)) {
+    if (obj[modeKey] === undefined) continue;
+    const chunk = { [modeKey]: obj[modeKey] };
+    used.add(modeKey);
+    valueKeys.forEach((k) => { if (obj[k] !== undefined) { chunk[k] = obj[k]; used.add(k); } });
+    chunks.push(chunk);
+  }
+  for (const [k, v] of Object.entries(obj)) if (!used.has(k)) chunks.push({ [k]: v });
+  return chunks;
+}
+
+export async function applySensorPatch(track, patch) {
+  const clean = withManualCompanions(track, normalizePatch(track, patch));
+  const accepted = {};
+  const rejected = {};
+
+  if (Object.keys(clean).length) {
+    try {
+      // Un solo bloque advanced con todo junto
+      await track.applyConstraints({ advanced: [clean] });
+      Object.assign(accepted, clean);
+    } catch (_) {
+      // Si algo falla, aislar qué clave es la culpable
+      for (const chunk of splitIntoChunks(clean)) {
+        try {
+          await track.applyConstraints({ advanced: [chunk] });
+          Object.assign(accepted, chunk);
+        } catch (err) {
+          Object.keys(chunk).forEach((k) => { rejected[k] = (err && err.message) || 'rechazado'; });
+        }
+      }
+    }
+  }
+
+  track.__desired = { ...(track.__desired || {}), ...accepted };
+  return { settings: (track.getSettings && track.getSettings()) || {}, accepted, rejected };
+}
+
+export async function restoreSensorState(track, saved) {
+  if (!track) return { settings: {}, accepted: {}, rejected: {} };
+  seedDesiredState(track, {});
+  return applySensorPatch(track, saved || {});
 }
 
 export async function reapplyDesiredState(track) {
-  try { await applySensorState(track); } catch (_) {}
-  return track.getSettings?.() || null;
+  if (!track) return null;
+  const result = await applySensorPatch(track, getDesiredState(track));
+  return result.settings;
 }
 
-export function queueTrackConstraintUpdate(track, constraintPatch, throttleMs = 100) {
-  if (!track || typeof track.applyConstraints !== 'function') {
-    return Promise.resolve(null);
+// Cola: agrupa cambios rápidos (sliders) y aplica solo el último, de uno en uno
+const sensorQueues = new WeakMap();
+
+export function queueSensorPatch(track, patch, throttleMs = 100) {
+  if (!track || typeof track.applyConstraints !== 'function') return Promise.resolve(null);
+  let q = sensorQueues.get(track);
+  if (!q) {
+    q = { pending: {}, waiters: [], running: false, timer: null, last: 0, throttle: 100 };
+    sensorQueues.set(track, q);
   }
-
-  const clampedThrottle = Math.min(Math.max(Number(throttleMs) || 100, 80), 120);
-  const queueState = getOrCreateTrackQueue(track);
-
-  return new Promise((resolve, reject) => {
-    const sanitizedPatch = sanitizeConstraintPatchForTrack(track, constraintPatch);
-    
-    // 1) Guardamos el parche en track.__desired justo después de sanitizedPatch
-    track.__desired = { ...(track.__desired || {}), ...sanitizedPatch };
-
-    queueState.pendingPatch = {
-      ...(queueState.pendingPatch || {}),
-      ...sanitizedPatch,
-    };
-    queueState.pendingWaiters.push({ resolve, reject });
-
-    const flushLatest = async () => {
-      if (queueState.inFlight) {
-        return;
-      }
-
-      const patchToApply = queueState.pendingPatch;
-      const waiters = queueState.pendingWaiters.splice(0, queueState.pendingWaiters.length);
-      queueState.pendingPatch = null;
-
-      if (!patchToApply || Object.keys(patchToApply).length === 0) {
-        const latestSettings =
-          typeof track.getSettings === 'function' ? track.getSettings() : null;
-        waiters.forEach((w) => w.resolve(latestSettings));
-        return;
-      }
-
-      queueState.lastDispatchTime = Date.now();
-
-      // 2) Reemplazamos el antiguo try/catch por applySensorState
-      queueState.inFlight = (async () => {
-        await applySensorState(track);
-        return track.getSettings?.() || null;
-      })();
-
-      try {
-        const updatedSettings = await queueState.inFlight;
-        waiters.forEach((w) => w.resolve(updatedSettings));
-      } catch (err) {
-        waiters.forEach((w) => w.reject(err));
-      } finally {
-        queueState.inFlight = null;
-        if (queueState.pendingPatch && Object.keys(queueState.pendingPatch).length > 0) {
-          scheduleFlush();
-        }
-      }
-    };
-
-    const scheduleFlush = () => {
-      if (queueState.throttleTimer !== null || queueState.inFlight) {
-        return;
-      }
-      const elapsed = Date.now() - queueState.lastDispatchTime;
-      const delay = Math.max(0, clampedThrottle - elapsed);
-
-      queueState.throttleTimer = setTimeout(() => {
-        queueState.throttleTimer = null;
-        flushLatest();
-      }, delay);
-    };
-
-    scheduleFlush();
+  q.throttle = Math.min(Math.max(Number(throttleMs) || 100, 50), 300);
+  Object.assign(q.pending, patch);
+  return new Promise((resolve) => {
+    q.waiters.push(resolve);
+    scheduleSensorFlush(track, q);
   });
+}
+
+function scheduleSensorFlush(track, q) {
+  if (q.running || q.timer !== null) return;
+  const delay = Math.max(0, q.throttle - (Date.now() - q.last));
+  q.timer = setTimeout(() => { q.timer = null; flushSensorQueue(track, q); }, delay);
+}
+
+async function flushSensorQueue(track, q) {
+  if (q.running) return;
+  const patch = q.pending;
+  const waiters = q.waiters.splice(0);
+  q.pending = {};
+  q.running = true;
+  let result;
+  try {
+    result = await applySensorPatch(track, patch);
+  } catch (err) {
+    result = { settings: (track.getSettings && track.getSettings()) || {}, accepted: {}, rejected: { error: (err && err.message) || 'error' } };
+  }
+  q.running = false;
+  q.last = Date.now();
+  waiters.forEach((w) => w(result));
+  if (Object.keys(q.pending).length) scheduleSensorFlush(track, q);
 }
 
 export async function syncAutoToManualConstraint(

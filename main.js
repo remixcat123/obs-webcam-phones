@@ -13,14 +13,12 @@ import {
   listVideoInputs,
   openCameraStream,
   readTrackCapabilitiesAndSettings,
-  queueTrackConstraintUpdate,
-  syncAutoToManualConstraint,
   requestScreenWakeLock,
   stopCameraStream,
-  SENSOR_GROUPS,
-  seedDesiredState,
   getDesiredState,
+  queueSensorPatch,
   reapplyDesiredState,
+  restoreSensorState,
 } from './camera.js';
 import {
   createEmitterPeer,
@@ -303,7 +301,6 @@ function findPreferredBackCameraDeviceId(devices) {
   return back.sort((a, b) => idx(a) - idx(b))[0].deviceId;
 }
 
-
 async function refreshCameraDeviceList(preferredDeviceId = '') {
   const cameraSelect = getEl('camera-select');
   const devices = await listVideoInputs();
@@ -350,16 +347,68 @@ function getSelectedResolutionPreset() {
   );
 }
 
+// La interfaz muestra lo que se pidió y se aceptó (desired), y cae a lo que informa la cámara
+function sensorViewState() {
+  return { ...appState.settings, ...(appState.track ? getDesiredState(appState.track) : {}) };
+}
+
+async function commitSensorChange(patch) {
+  if (!appState.track) return;
+  const result = await queueSensorPatch(appState.track, patch, 100);
+  if (!result) return;
+  if (result.settings) appState.settings = result.settings;
+  persistSensors();
+  const rejectedKeys = Object.keys(result.rejected || {});
+  if (rejectedKeys.length) {
+    showToast(`El sensor rechazó: ${rejectedKeys.map(formatCapabilityLabel).join(', ')}`);
+  }
+  renderActiveSensorControls();
+  updatePreviewFormatBadge();
+}
+
+function renderActiveSensorControls() {
+  renderSensorControls(
+    appState.capabilities,
+    sensorViewState(),
+    (key, value) => commitSensorChange({ [key]: value }),
+    (modeKey, value) => commitSensorChange({ [modeKey]: value })
+  );
+}
+
+function showDiagnostics() {
+  const t = appState.track;
+  const dump = {
+    userAgent: navigator.userAgent,
+    label: t && t.label,
+    capabilities: t && t.getCapabilities ? t.getCapabilities() : null,
+    settings: t && t.getSettings ? t.getSettings() : null,
+    desired: t ? getDesiredState(t) : null,
+    saved: loadSession().sensors || {},
+  };
+  let ta = getEl('diag-output');
+  if (!ta) {
+    ta = document.createElement('textarea');
+    ta.id = 'diag-output';
+    ta.readOnly = true;
+    ta.rows = 12;
+    ta.style.width = '100%';
+    getEl('sensor-controls-container').after(ta);
+  }
+  ta.value = JSON.stringify(dump, null, 2);
+  ta.select();
+}
+
 function collectCurrentNumericSensorValues() {
   const values = {};
   if (!appState.capabilities || typeof appState.capabilities !== 'object') {
     return values;
   }
+  const viewState = sensorViewState();
   for (const [key, cap] of Object.entries(appState.capabilities)) {
     if (EXCLUDED_SENSOR_KEYS.has(key)) continue;
     if (!cap || typeof cap !== 'object') continue;
     if (typeof cap.min !== 'number' || typeof cap.max !== 'number') continue;
-    const val = appState.settings ? appState.settings[key] : undefined;
+    const val = viewState[key];
     if (typeof val === 'number' && Number.isFinite(val)) {
       values[key] = val;
     }
@@ -372,10 +421,11 @@ function collectCurrentModeValues() {
   if (!appState.capabilities || typeof appState.capabilities !== 'object') {
     return modes;
   }
+  const viewState = sensorViewState();
   for (const [key, cap] of Object.entries(appState.capabilities)) {
     if (EXCLUDED_SENSOR_KEYS.has(key)) continue;
     if (Array.isArray(cap) && cap.length > 0) {
-      const val = appState.settings ? appState.settings[key] : undefined;
+      const val = viewState[key];
       if (typeof val === 'string' && val.trim() !== '') {
         modes[key] = val;
       }
@@ -427,47 +477,6 @@ function persistSensors() {
   saveSession({ sensors: { ...all, [id]: getDesiredState(appState.track) } });
 }
 
-function renderActiveSensorControls() {
-  renderSensorControls(
-    appState.capabilities,
-    appState.settings,
-    async (key, value) => {
-      if (!appState.track) return;
-      const patch = { [key]: value };
-      const modeKey = resolveModeKeyForCapability(key, appState.capabilities);
-      if (modeKey && appState.capabilities[modeKey].includes('manual')) patch[modeKey] = 'manual';
-      try {
-        const updated = await queueTrackConstraintUpdate(appState.track, patch, 100);
-        if (updated) appState.settings = updated;
-        persistSensors();
-        updatePreviewFormatBadge();
-      } catch (err) {
-        showToast(`El dispositivo rechazó "${formatCapabilityLabel(key)}": ${err?.message || 'no soportado'}`);
-      }
-    },
-    async (modeKey, value) => {
-      if (!appState.track) return;
-      const patch = { [modeKey]: value };
-      if (value === 'manual') {
-        const d = getDesiredState(appState.track);
-        (SENSOR_GROUPS[modeKey] || []).forEach((k) => {
-          const v = d[k] ?? appState.settings[k];
-          if (typeof v === 'number') patch[k] = v;
-        });
-      }
-      try {
-        const updated = await queueTrackConstraintUpdate(appState.track, patch, 100);
-        const fresh = readTrackCapabilitiesAndSettings(appState.track);
-        appState.settings = updated || fresh.settings;
-        persistSensors();
-        renderActiveSensorControls();
-      } catch (err) {
-        showToast(`No se pudo cambiar ${formatCapabilityLabel(modeKey)}: ${err?.message || 'rechazado'}`);
-      }
-    }
-  );
-}
-
 async function initializeOrSwitchCamera(options = {}) {
   const { resetFresh = true, preferredDeviceId = '', allowRearFallback = false } = options || {};
   const preset = getSelectedResolutionPreset();
@@ -505,11 +514,11 @@ async function initializeOrSwitchCamera(options = {}) {
     appState.settings = opened.settings || {};
 
     const devId = appState.settings.deviceId || '';
-    seedDesiredState(appState.track, (loadSession().sensors || {})[devId] || {});
-    const live = await reapplyDesiredState(appState.track);
-    if (live) appState.settings = live;
+    const saved = (loadSession().sensors || {})[devId] || {};
+    const restored = await restoreSensorState(appState.track, saved);
+    if (restored && restored.settings) appState.settings = restored.settings;
     const cont = getEl('sensor-controls-container');
-    if (cont) cont.innerHTML = '';   // evita filas con min/max de otra cámara
+    if (cont) cont.innerHTML = '';//podre un comentario yo aqui
 
     if (typeof appState.settings.deviceId === 'string' && appState.settings.deviceId) {
       appState.selectedDeviceId = appState.settings.deviceId;
@@ -1057,14 +1066,21 @@ function bindEmitterEvents() {
   const resetNativeBtn = getEl('reset-native-btn');
   if (resetNativeBtn) {
     resetNativeBtn.addEventListener('click', async () => {
+      const id = appState.settings.deviceId || appState.selectedDeviceId;
+      const all = { ...(loadSession().sensors || {}) };
+      delete all[id];
+      saveSession({ sensors: all });
       await initializeOrSwitchCamera({
         resetFresh: false,
         preferredDeviceId: appState.selectedDeviceId,
         allowRearFallback: false,
       });
-      showToast('Valores nativos releídos desde el hardware.');
+      showToast('Sensores restablecidos a valores nativos.');
     });
   }
+
+  const diagBtn = getEl('diag-btn');
+  if (diagBtn) diagBtn.addEventListener('click', showDiagnostics);
 
   document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible') {
@@ -1305,13 +1321,6 @@ export function renderSensorControls(
         };
 
         numberInput.addEventListener('change', commitNumberInput);
-        numberInput.addEventListener('blur', commitNumberInput);
-        numberInput.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            commitNumberInput();
-          }
-        });
 
         row.appendChild(rangeInput);
         row.appendChild(numberInput);
@@ -1384,7 +1393,10 @@ export function renderSensorControls(
       }
     } else if (isModeArray) {
       if (selectEl) {
-        selectEl.value = String(currSettings[key]);
+        const cur = currSettings[key];
+        if (cur !== undefined && cap.map(String).includes(String(cur))) {
+          selectEl.value = String(cur);
+        }
       }
     }
   }
@@ -1417,23 +1429,15 @@ export function buildCurrentProfileSnapshot(profileName, state = {}) {
   };
 }
 
-export async function applyProfileToActiveCamera(profile, capabilities, settings) {
+export async function applyProfileToActiveCamera(profile) {
   const prof = profile && typeof profile === 'object' ? profile : {};
-  const sensorValues =
-    prof.sensorValues && typeof prof.sensorValues === 'object' ? prof.sensorValues : {};
-  const modeValues =
-    prof.modeValues && typeof prof.modeValues === 'object' ? prof.modeValues : {};
-
-  if (appState.track) {
-    seedDesiredState(appState.track, { ...modeValues, ...sensorValues });
-    const live = await reapplyDesiredState(appState.track);
-    if (live) appState.settings = live;
-    persistSensors();
-  }
-
-  return {
-    appliedCount: Object.keys(sensorValues).length,
-  };
+  const sensorValues = prof.sensorValues && typeof prof.sensorValues === 'object' ? prof.sensorValues : {};
+  const modeValues = prof.modeValues && typeof prof.modeValues === 'object' ? prof.modeValues : {};
+  if (!appState.track) return { appliedCount: 0 };
+  const res = await restoreSensorState(appState.track, { ...modeValues, ...sensorValues });
+  if (res.settings) appState.settings = res.settings;
+  persistSensors();
+  return { appliedCount: Object.keys(res.accepted || {}).length };
 }
 
 export function exportProfilesToJsonFile(profiles) {
