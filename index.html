@@ -1,264 +1,155 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="color-scheme" content="dark">
-  <meta name="theme-color" content="#0f1115">
-  <title>Webcam P2P Persistente · OBS</title>
-  <link rel="stylesheet" href="./styles.css">
-  <!-- PeerJS 1.5.4 (versión fija). Ambos scripts son defer: se ejecutan en orden. -->
-  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js" defer></script>
-  <script src="./app.js" defer></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Webcam P2P Persistente para OBS Studio (v2.1)</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" defer></script>
+  <script type="module" src="./main.js"></script>
 </head>
 <body>
-
-  <!-- ===================== MODO RECEPTOR (OBS) ===================== -->
+  <!-- Vista Receptor (OBS Browser Source) -->
   <main id="obs-app" class="hidden">
-    <video id="obs-video" autoplay playsinline muted></video>
-    <div id="obs-status" class="hidden" role="status" aria-live="polite"></div>
+    <video id="obs-video" autoplay playsinline></video>
 
-    <div id="obs-auth-modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="obs-auth-title">
-      <div class="auth-box">
-        <h2 id="obs-auth-title">Sala protegida</h2>
-        <label for="obs-password-input">Contraseña</label>
-        <input type="password" id="obs-password-input" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div id="obs-auth-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="obs-auth-title">
+      <form id="obs-auth-form" class="modal-card">
+        <h2 id="obs-auth-title">Contraseña de Sala</h2>
+        <p class="modal-subtitle">Introduce la clave configurada en el emisor para conectar.</p>
+        <label for="obs-auth-input">Clave de acceso</label>
+        <input id="obs-auth-input" type="password" autocomplete="off" placeholder="Clave de la sala" />
         <p id="obs-auth-error" class="auth-error hidden" role="alert"></p>
-        <button type="button" id="obs-auth-submit" class="btn btn-primary">Entrar</button>
-      </div>
+        <button id="obs-auth-submit" type="submit">Conectar</button>
+      </form>
     </div>
   </main>
 
-  <!-- ===================== MODO EMISOR ===================== -->
-  <main id="emitter-app">
-
+  <!-- Vista Emisor -->
+  <main id="emitter-app" class="hidden">
     <header class="app-header">
-      <h1>Webcam P2P</h1>
-      <div class="status-group" role="status" aria-live="polite">
-        <span id="status-indicator" class="status-dot status-idle"></span>
-        <span id="status-text">Iniciando…</span>
-        <span class="viewers">Receptores: <span id="viewers-count">0</span></span>
+      <h1>Webcam P2P Persistente · OBS v2.1</h1>
+      <div class="status-badge">
+        <span id="status-indicator" class="status-dot status-dot--init" aria-hidden="true"></span>
+        <span id="status-text">Iniciando...</span>
       </div>
     </header>
 
-    <div class="layout">
+    <section class="panel preview-panel">
+      <div id="preview-container" class="preview-container preview-container--landscape" data-orientation="16:9">
+        <video id="local-video" muted playsinline></video>
+        <div class="preview-overlays">
+          <span id="preview-format-badge" class="overlay-badge">--</span>
+          <span id="wakelock-badge" class="overlay-badge">WakeLock: --</span>
+        </div>
+      </div>
+    </section>
 
-      <!-- ---------- Columna izquierda: vista previa y transmisión ---------- -->
-      <div class="col-main">
-
-        <section class="panel" aria-labelledby="room-title">
-          <h2 id="room-title">Sala</h2>
-          <div class="field">
-            <label for="room-id-input">Nombre de sala</label>
-            <input type="text" id="room-id-input" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="40">
-          </div>
-          <div class="field">
-            <label for="room-password-input">Contraseña (opcional, solo en esta sesión)</label>
-            <input type="password" id="room-password-input" autocomplete="new-password" autocapitalize="off" spellcheck="false">
-          </div>
-          <div class="btn-row">
-            <button type="button" id="btn-apply-room" class="btn">Aplicar sala</button>
-            <button type="button" id="btn-copy-url" class="btn btn-primary">Copiar URL para OBS</button>
-            <button type="button" id="btn-oled" class="btn">Modo OLED</button>
-          </div>
-        </section>
-
-        <section class="panel" aria-labelledby="preview-title">
-          <h2 id="preview-title">Vista previa</h2>
-          <div id="preview-wrapper" class="ratio-16-9">
-            <video id="local-video" autoplay playsinline muted></video>
-          </div>
-
-          <div class="grid-2">
-            <div class="field">
-              <label for="camera-select">Cámara</label>
-              <select id="camera-select"></select>
-            </div>
-            <div class="field">
-              <label for="orientation-select">Orientación</label>
-              <select id="orientation-select">
-                <option value="16:9" selected>16:9 (horizontal)</option>
-                <option value="9:16">9:16 (vertical)</option>
-              </select>
-            </div>
-            <div class="field">
-              <label for="resolution-select">Resolución</label>
-              <select id="resolution-select">
-                <option value="720p">720p</option>
-                <option value="1080p" selected>1080p</option>
-                <option value="1440p">1440p</option>
-                <option value="4k">4K</option>
-              </select>
-            </div>
-            <div class="field">
-              <label for="fps-select">Fotogramas por segundo</label>
-              <select id="fps-select">
-                <option value="24">24 fps</option>
-                <option value="30" selected>30 fps</option>
-                <option value="60">60 fps</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="control-row">
-            <label class="control-label" for="bitrate-range">Bitrate (kbps)</label>
-            <input type="range" id="bitrate-range" class="control-range" min="2000" max="8000" step="100" value="4000">
-            <input type="number" id="bitrate-number" class="control-number" inputmode="numeric" min="2000" max="8000" step="100" value="4000">
-          </div>
-        </section>
-
-        <details id="stats-details" class="panel">
-          <summary>Métricas de transmisión</summary>
-          <dl class="stats-grid">
-            <dt>Resolución efectiva</dt><dd id="stats-resolution">–</dd>
-            <dt>FPS reales</dt><dd id="stats-fps">–</dd>
-            <dt>Bitrate</dt><dd id="stats-bitrate">–</dd>
-            <dt>RTT</dt><dd id="stats-rtt">–</dd>
-          </dl>
-        </details>
-
+    <section class="panel connection-panel">
+      <h2>Conexión y Sala</h2>
+      <div class="grid-2">
+        <div class="field">
+          <label for="room-id-input">ID de Sala Fijo</label>
+          <input id="room-id-input" type="text" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="field">
+          <label for="room-password-input">Clave Opcional</label>
+          <input id="room-password-input" type="password" autocomplete="off" placeholder="Sin clave" />
+        </div>
+        <div class="field">
+          <label for="bitrate-select">Bitrate Máx. WebRTC</label>
+          <select id="bitrate-select"></select>
+        </div>
       </div>
 
-      <!-- ---------- Columna derecha: sensor y perfiles ---------- -->
-      <div class="col-side">
-
-        <section id="sensor-controls" class="panel hidden" aria-labelledby="sensor-title">
-          <h2 id="sensor-title">Controles de cámara</h2>
-          <p id="no-controls-msg" class="muted hidden">Esta cámara no expone controles ajustables.</p>
-
-          <!-- Balance de blancos -->
-          <div id="ctrl-white-balance-mode" class="control-row control-row-select hidden">
-            <label class="control-label" for="white-balance-mode-select">Balance de blancos</label>
-            <select id="white-balance-mode-select" class="control-select"></select>
-          </div>
-          <div id="ctrl-color-temperature" class="control-row hidden">
-            <label class="control-label" for="color-temperature-range">Temperatura de color (K)</label>
-            <input type="range" id="color-temperature-range" class="control-range" min="0" max="100" step="1">
-            <input type="number" id="color-temperature-number" class="control-number" inputmode="decimal" min="0" max="100" step="1">
-          </div>
-
-          <!-- Exposición -->
-          <div id="ctrl-exposure-mode" class="control-row control-row-select hidden">
-            <label class="control-label" for="exposure-mode-select">Modo de exposición</label>
-            <select id="exposure-mode-select" class="control-select"></select>
-          </div>
-          <div id="ctrl-exposure-time" class="control-row hidden">
-            <label class="control-label" for="exposure-time-range">Tiempo de exposición</label>
-            <input type="range" id="exposure-time-range" class="control-range" min="0" max="100" step="1">
-            <input type="number" id="exposure-time-number" class="control-number" inputmode="decimal" min="0" max="100" step="1">
-          </div>
-          <div id="ctrl-iso" class="control-row hidden">
-            <label class="control-label" for="iso-range">ISO</label>
-            <input type="range" id="iso-range" class="control-range" min="0" max="100" step="1">
-            <input type="number" id="iso-number" class="control-number" inputmode="decimal" min="0" max="100" step="1">
-          </div>
-          <div id="ctrl-exposure-compensation" class="control-row hidden">
-            <label class="control-label" for="exposure-compensation-range">Compensación de exposición</label>
-            <input type="range" id="exposure-compensation-range" class="control-range" min="0" max="100" step="1">
-            <input type="number" id="exposure-compensation-number" class="control-number" inputmode="decimal" min="0" max="100" step="1">
-          </div>
-
-          <!-- Enfoque -->
-          <div id="ctrl-focus-mode" class="control-row control-row-select hidden">
-            <label class="control-label" for="focus-mode-select">Modo de enfoque</label>
-            <select id="focus-mode-select" class="control-select"></select>
-          </div>
-          <div id="ctrl-focus-distance" class="control-row hidden">
-            <label class="control-label" for="focus-distance-range">Distancia de enfoque</label>
-            <input type="range" id="focus-distance-range" class="control-range" min="0" max="100" step="1">
-            <input type="number" id="focus-distance-number" class="control-number" inputmode="decimal" min="0" max="100" step="1">
-          </div>
-
-          <!-- Encuadre -->
-          <div id="ctrl-zoom" class="control-row hidden">
-            <label class="control-label" for="zoom-range">Zoom</label>
-            <input type="range" id="zoom-range" class="control-range" min="0" max="100" step="1">
-            <input type="number" id="zoom-number" class="control-number" inputmode="decimal" min="0" max="100" step="1">
-          </div>
-          <div id="ctrl-pan" class="control-row hidden">
-            <label class="control-label" for="pan-range">Pan</label>
-            <input type="range" id="pan-range" class="control-range" min="0" max="100" step="1">
-            <input type="number" id="pan-number" class="control-number" inputmode="decimal" min="0" max="100" step="1">
-          </div>
-          <div id="ctrl-tilt" class="control-row hidden">
-            <label class="control-label" for="tilt-range">Tilt</label>
-            <input type="range" id="tilt-range" class="control-range" min="0" max="100" step="1">
-            <input type="number" id="tilt-number" class="control-number" inputmode="decimal" min="0" max="100" step="1">
-          </div>
-
-          <!-- Linterna -->
-          <div id="ctrl-torch" class="control-row control-row-toggle hidden">
-            <label class="control-label" for="torch-toggle">Linterna</label>
-            <input type="checkbox" id="torch-toggle" class="control-toggle">
-          </div>
-
-          <!-- Imagen -->
-          <div id="ctrl-brightness" class="control-row hidden">
-            <label class="control-label" for="brightness-range">Brillo</label>
-            <input type="range" id="brightness-range" class="control-range" min="0" max="100" step="1">
-            <input type="number" id="brightness-number" class="control-number" inputmode="decimal" min="0" max="100" step="1">
-          </div>
-          <div id="ctrl-contrast" class="control-row hidden">
-            <label class="control-label" for="contrast-range">Contraste</label>
-            <input type="range" id="contrast-range" class="control-range" min="0" max="100" step="1">
-            <input type="number" id="contrast-number" class="control-number" inputmode="decimal" min="0" max="100" step="1">
-          </div>
-          <div id="ctrl-saturation" class="control-row hidden">
-            <label class="control-label" for="saturation-range">Saturación</label>
-            <input type="range" id="saturation-range" class="control-range" min="0" max="100" step="1">
-            <input type="number" id="saturation-number" class="control-number" inputmode="decimal" min="0" max="100" step="1">
-          </div>
-          <div id="ctrl-sharpness" class="control-row hidden">
-            <label class="control-label" for="sharpness-range">Nitidez</label>
-            <input type="range" id="sharpness-range" class="control-range" min="0" max="100" step="1">
-            <input type="number" id="sharpness-number" class="control-number" inputmode="decimal" min="0" max="100" step="1">
-          </div>
-
-          <div class="btn-row">
-            <button type="button" id="btn-reapply" class="btn">Reaplicar ajustes</button>
-            <button type="button" id="btn-reset-native" class="btn">Restablecer valores nativos</button>
-          </div>
-        </section>
-
-        <section class="panel" aria-labelledby="profiles-title">
-          <h2 id="profiles-title">Perfiles</h2>
-          <div class="field">
-            <label for="profile-name-input">Nombre del perfil</label>
-            <input type="text" id="profile-name-input" autocomplete="off" maxlength="40">
-          </div>
-          <div class="btn-row">
-            <button type="button" id="btn-save-profile" class="btn btn-primary">Guardar perfil</button>
-          </div>
-
-          <div class="field">
-            <label for="profile-list-select">Perfiles de esta sesión</label>
-            <select id="profile-list-select"></select>
-          </div>
-          <div class="btn-row">
-            <button type="button" id="btn-apply-profile" class="btn">Aplicar</button>
-            <button type="button" id="btn-delete-profile" class="btn">Borrar</button>
-            <button type="button" id="btn-export-profile" class="btn">Exportar .json</button>
-            <button type="button" id="btn-import-profile" class="btn">Importar .json</button>
-          </div>
-          <input type="file" id="profile-import-file" accept=".json,application/json" hidden>
-        </section>
-
+      <div class="actions-row">
+        <button id="copy-obs-url-btn" type="button">Copiar URL para OBS</button>
+        <button id="reset-room-btn" type="button">Reiniciar Sala</button>
+        <button id="oled-mode-btn" type="button">Modo OLED</button>
       </div>
-    </div>
+
+      <div id="obs-url-fallback-box" class="fallback-box hidden">
+        <label for="obs-url-fallback-input">Copia manualmente la URL para OBS:</label>
+        <input id="obs-url-fallback-input" type="text" readonly />
+      </div>
+    </section>
+
+    <section class="panel stats-panel">
+      <details id="stats-details">
+        <summary>Monitor de Métricas WebRTC</summary>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <span class="stat-label">Res. Efectiva</span>
+            <span id="stat-resolution" class="stat-value">--</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">FPS Reales</span>
+            <span id="stat-fps" class="stat-value">--</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Bitrate Est.</span>
+            <span id="stat-bitrate" class="stat-value">--</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Latencia (RTT)</span>
+            <span id="stat-rtt" class="stat-value">--</span>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <section class="panel format-panel">
+      <h2>Lente y Formato</h2>
+      <div class="grid-3">
+        <div class="field">
+          <label for="camera-select">Cámara / Sensor Físico</label>
+          <select id="camera-select"></select>
+        </div>
+        <div class="field">
+          <label for="resolution-select">Resolución</label>
+          <select id="resolution-select"></select>
+        </div>
+        <div class="field">
+          <label for="fps-select">FPS</label>
+          <select id="fps-select"></select>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel sensor-panel">
+      <div class="panel-header-inline">
+        <h2>Ajustes Manuales del Sensor</h2>
+        <button id="reapply-controls-btn" type="button">Reaplicar</button>
+      </div>
+      <div id="sensor-controls-container" class="sensor-controls-list"></div>
+    </section>
+
+    <section class="panel profiles-panel">
+      <h2>Perfiles Personalizados</h2>
+      <div class="grid-2">
+        <div class="field">
+          <label for="profile-name-input">Nombre del Perfil</label>
+          <input id="profile-name-input" type="text" placeholder="Ej. Estudio Día" />
+        </div>
+        <div class="field">
+          <label for="profile-select">Perfiles en Sesión</label>
+          <select id="profile-select"></select>
+        </div>
+      </div>
+
+      <div class="actions-row">
+        <button id="save-profile-btn" type="button">Guardar Perfil</button>
+        <button id="apply-profile-btn" type="button">Aplicar Perfil</button>
+        <button id="export-profiles-btn" type="button">Exportar JSON</button>
+        <button id="import-profiles-btn" type="button">Importar JSON</button>
+        <button id="reset-native-btn" type="button">Restablecer Valores Nativos</button>
+        <input id="import-profiles-file" type="file" accept=".json,application/json" class="hidden" />
+      </div>
+    </section>
   </main>
 
-  <!-- ===================== COMPARTIDOS ===================== -->
-  <div id="oled-saver" aria-hidden="true"></div>
-
-  <div id="toast" role="status" aria-live="polite"></div>
-
-  <dialog id="copy-fallback-dialog" aria-labelledby="copy-fallback-title">
-    <h2 id="copy-fallback-title">Copia la URL manualmente</h2>
-    <input type="text" id="copy-fallback-input" readonly>
-    <div class="btn-row">
-      <button type="button" id="btn-copy-fallback-close" class="btn btn-primary">Cerrar</button>
-    </div>
-  </dialog>
-
+  <!-- Capas auxiliares -->
+  <div id="oled-saver" class="oled-saver" aria-hidden="true"></div>
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 </body>
 </html>
