@@ -328,6 +328,26 @@ export async function applySensorPatch(track, patch) {
   }
 
   track.__desired = { ...(track.__desired || {}), ...accepted };
+
+  // Balance de blancos manual: replica "pasar a continuo y volver a manual"
+  const caps = (track.getCapabilities && track.getCapabilities()) || {};
+  const wbTouched =
+    patchClean.colorTemperature !== undefined || patchClean.whiteBalanceMode === 'manual';
+  if (
+    wbTouched &&
+    full.whiteBalanceMode === 'manual' &&
+    typeof full.colorTemperature === 'number' &&
+    Array.isArray(caps.whiteBalanceMode) &&
+    caps.whiteBalanceMode.includes('continuous')
+  ) {
+    const { colorTemperature, ...rest } = full;
+    try {
+      await track.applyConstraints({ advanced: [{ ...rest, whiteBalanceMode: 'continuous' }] });
+      await new Promise((r) => setTimeout(r, 120));
+      await track.applyConstraints({ advanced: [full] });
+    } catch (_) {}
+  }
+
   return { settings: (track.getSettings && track.getSettings()) || {}, accepted, rejected };
 }
 
