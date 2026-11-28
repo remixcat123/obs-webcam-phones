@@ -304,18 +304,19 @@ function splitIntoChunks(obj) {
 }
 
 export async function applySensorPatch(track, patch) {
-  const clean = withManualCompanions(track, normalizePatch(track, patch));
+  const patchClean = withManualCompanions(track, normalizePatch(track, patch));
+  // Estado completo: lo ya aceptado + el cambio nuevo, en UNA petición
+  const previous = normalizePatch(track, track.__desired || {});
+  const full = withManualCompanions(track, { ...previous, ...patchClean });
   const accepted = {};
   const rejected = {};
 
-  if (Object.keys(clean).length) {
+  if (Object.keys(full).length) {
     try {
-      // Un solo bloque advanced con todo junto
-      await track.applyConstraints({ advanced: [clean] });
-      Object.assign(accepted, clean);
+      await track.applyConstraints({ advanced: [full] });
+      Object.assign(accepted, full);
     } catch (_) {
-      // Si algo falla, aislar qué clave es la culpable
-      for (const chunk of splitIntoChunks(clean)) {
+      for (const chunk of splitIntoChunks(full)) {
         try {
           await track.applyConstraints({ advanced: [chunk] });
           Object.assign(accepted, chunk);

@@ -1273,13 +1273,18 @@ export function renderSensorControls(
         const min = cap.min;
         const max = cap.max;
         const step = typeof cap.step === 'number' && cap.step > 0 ? cap.step : 1;
+        const useLog = key === 'exposureTime' && min > 0 && max / min > 100;
+        const posToVal = (p) => (useLog ? min * Math.pow(max / min, p / 1000) : p);
+        const valToPos = (v) =>
+          useLog ? (1000 * Math.log(Math.max(v, min) / min)) / Math.log(max / min) : v;
 
         rangeInput = document.createElement('input');
         rangeInput.type = 'range';
         rangeInput.dataset.role = 'range-input';
-        rangeInput.min = String(min);
-        rangeInput.max = String(max);
-        rangeInput.step = String(step);
+        rangeInput.min = useLog ? '0' : String(min);
+        rangeInput.max = useLog ? '1000' : String(max);
+        rangeInput.step = useLog ? '1' : String(step);
+        rangeInput.__toPos = valToPos;
 
         numberInput = document.createElement('input');
         numberInput.type = 'number';
@@ -1289,37 +1294,26 @@ export function renderSensorControls(
         numberInput.step = String(step);
 
         rangeInput.addEventListener('input', () => {
-          const numVal = Number(rangeInput.value);
-          numberInput.value = String(numVal);
-          if (typeof onControlCommit === 'function') {
-            onControlCommit(key, numVal, 'range');
-          }
+          const val = clampAndStepValue(posToVal(Number(rangeInput.value)), min, max, step);
+          numberInput.value = String(val);
+          if (typeof onControlCommit === 'function') onControlCommit(key, val, 'range');
         });
 
         numberInput.addEventListener('input', () => {
-          const partialNum = Number(numberInput.value);
-          if (
-            numberInput.value.trim() !== '' &&
-            Number.isFinite(partialNum) &&
-            partialNum >= min &&
-            partialNum <= max
-          ) {
-            rangeInput.value = String(partialNum);
+          const n = Number(numberInput.value);
+          if (numberInput.value.trim() !== '' && Number.isFinite(n) && n >= min && n <= max) {
+            rangeInput.value = String(valToPos(n));
           }
         });
 
         const commitNumberInput = () => {
           const rawNum = Number(numberInput.value);
-          const initialVal = Number(rangeInput.value) || min;
-          const targetRaw = Number.isFinite(rawNum) ? rawNum : initialVal;
-          const clamped = clampAndStepValue(targetRaw, min, max, step);
+          const fallback = posToVal(Number(rangeInput.value)) || min;
+          const clamped = clampAndStepValue(Number.isFinite(rawNum) ? rawNum : fallback, min, max, step);
           numberInput.value = String(clamped);
-          rangeInput.value = String(clamped);
-          if (typeof onControlCommit === 'function') {
-            onControlCommit(key, clamped, 'number');
-          }
+          rangeInput.value = String(valToPos(clamped));
+          if (typeof onControlCommit === 'function') onControlCommit(key, clamped, 'number');
         };
-
         numberInput.addEventListener('change', commitNumberInput);
 
         row.appendChild(rangeInput);
@@ -1366,7 +1360,7 @@ export function renderSensorControls(
     let isAutoActive = false;
     if (linkedModeKey && supportedModes.length > 0) {
       const currentModeVal = currSettings[linkedModeKey];
-      isAutoActive = currentModeVal !== undefined && currentModeVal !== 'manual';
+      isAutoActive = currentModeVal !== undefined && currentModeVal !== 'manual' && currentModeVal !== 'none';
     }
 
     if (typeof cap === 'object' && !isModeArray && typeof cap.min === 'number' && typeof cap.max === 'number') {
@@ -1377,10 +1371,14 @@ export function renderSensorControls(
       const initialVal = clampAndStepValue(initialRaw, min, max, step);
 
       if (rangeInput && document.activeElement !== rangeInput) {
-        rangeInput.value = String(initialVal);
+        rangeInput.value = String(rangeInput.__toPos ? rangeInput.__toPos(initialVal) : initialVal);
       }
       if (numberInput && document.activeElement !== numberInput) {
         numberInput.value = String(initialVal);
+        if (key === 'exposureTime') {
+          const sec = initialVal * 0.0001;
+          row.children[1].textContent = sec >= 1 ? `${sec.toFixed(1)} s` : `1/${Math.round(1 / sec)} s`;
+        }
       }
 
       const isInputsDisabled = isAutoActive || (linkedModeKey && !supportedModes.includes('manual'));
