@@ -515,6 +515,7 @@ async function initializeOrSwitchCamera(options = {}) {
     appState.track = opened.track;
     if (appState.track) {
       appState.track.enabled = true;
+      try { appState.track.contentHint = 'motion'; } catch (_) {}
     }
     appState.capabilities = opened.capabilities || {};
     appState.settings = opened.settings || {};
@@ -713,7 +714,10 @@ function startStatsMonitor() {
     const rttEl = getEl('stat-rtt');
 
     if (resEl) resEl.textContent = metrics.resolution || '--';
-    if (fpsEl) fpsEl.textContent = metrics.fps > 0 ? `${metrics.fps} fps` : '--';
+        if (fpsEl) {
+      const lim = metrics.limitReason && metrics.limitReason !== 'none' ? ` (${metrics.limitReason})` : '';
+      fpsEl.textContent = metrics.fps > 0 ? `${metrics.fps} fps${lim}` : '--';
+    }
     if (brEl) brEl.textContent = `${metrics.bitrateKbps} kbps`;
     if (rttEl) {
       rttEl.textContent =

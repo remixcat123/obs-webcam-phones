@@ -681,6 +681,7 @@ export async function collectWebRtcStats(peerConnection, prevSample = null) {
     fps: 0,
     bitrateKbps: 0,
     rttMs: null,
+    limitReason: '',
     sample: prevSample || null,
   };
 
@@ -705,6 +706,7 @@ export async function collectWebRtcStats(peerConnection, prevSample = null) {
   let totalFramesEncoded = 0;
   let sampleTimestamp = null;
   let rttMs = null;
+  let limitReason = '';
   const trackMap = new Map();
   const candidatePairs = [];
 
@@ -724,6 +726,9 @@ export async function collectWebRtcStats(peerConnection, prevSample = null) {
     if (!stat || typeof stat !== 'object') return;
 
     if (stat.type === 'outbound-rtp' && (stat.kind === 'video' || stat.mediaType === 'video')) {
+      if (typeof stat.qualityLimitationReason === 'string') {
+        limitReason = stat.qualityLimitationReason;
+      }
       if (typeof stat.bytesSent === 'number') {
         totalBytesSent += stat.bytesSent;
       }
@@ -847,6 +852,7 @@ export async function collectWebRtcStats(peerConnection, prevSample = null) {
     fps,
     bitrateKbps,
     rttMs,
+    limitReason,
     sample: {
       timestamp: sampleTimestamp,
       bytesSent: totalBytesSent,
