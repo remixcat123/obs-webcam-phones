@@ -354,6 +354,12 @@ function sensorViewState() {
 
 async function commitSensorChange(patch) {
   if (!appState.track) return;
+    if (patch.exposureTime !== undefined && appState.fps > 0) {
+    const frameUnits = 10000 / appState.fps;   // duración de un cuadro en unidades de 100 µs
+    if (patch.exposureTime > frameUnits * 0.7) {
+      showToast('Exposición larga: puede bajar los FPS (prueba 1/60 s o más corto).');
+    }
+  }
   const result = await queueSensorPatch(appState.track, patch, 100);
   if (!result) return;
   if (result.settings) appState.settings = result.settings;
