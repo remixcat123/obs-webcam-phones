@@ -515,7 +515,7 @@ async function initializeOrSwitchCamera(options = {}) {
     appState.track = opened.track;
     if (appState.track) {
       appState.track.enabled = true;
-      try { appState.track.contentHint = 'motion'; } catch (_) {}
+      //try { appState.track.contentHint = 'motion'; } catch (_) {}
     }
     appState.capabilities = opened.capabilities || {};
     appState.settings = opened.settings || {};
